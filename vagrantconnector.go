@@ -86,13 +86,13 @@ func usrDir() (string, error) {
 	return usr.HomeDir, nil
 }
 
-func loadVagrantIndex(path string) (*VagrantIndex, error) {
+func loadVagrantIndex(path string) (*vagrantIndex, error) {
 	file, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var v VagrantIndex
+	var v vagrantIndex
 	err = json.Unmarshal(file, &v)
 	if err != nil {
 		return nil, err
@@ -116,4 +116,18 @@ func (vc *VagrantConnector) Print() {
 		fmt.Printf("extra data: ")
 		fmt.Println(v.ExtraData, "\n")
 	}
+}
+
+func (vc *VagrantConnector) GetVmCount() int {
+	return len(vc.VagrantIndex.Machines)
+}
+
+func (vc *VagrantConnector) SpinUpNew(count int) (int, error) {
+	//TODO: spin up vagrant boxes
+	return 1, nil
+}
+
+func (vc *VagrantConnector) GetBoxMemory() int64 {
+	//TODO: Implement
+	return 2097152
 }
