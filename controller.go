@@ -18,10 +18,41 @@
 
 package main
 
+import "errors"
+
+var (
+	ErrTooManyVms = errors.New("Too many vms are running")
+	ErrNoMemory   = errors.New("Not enough system memory available")
+)
+
 // Controller struct gives other type to hold reference to it
-type Controller struct{}
+type Controller struct {
+	VagrantConnector *VagrantConnector
+	JenkinsConnector *JenkinsConnector
+	Config           *Configuration
+}
 
 // NewController instatiates a new Controller and returns it
-func NewController() (*Controller, error) {
-	return &Controller{}, nil
+func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configuration) *Controller {
+	return &Controller{vc, jc, conf}
+}
+
+func (c *Controller) StartVms(count int) (int, error) {
+	maxVmCount := c.Config.MaxVms
+	vmCount := c.VagrantConnector.GetVmCount()
+	if maxVmCount >= vmCount {
+		return 0, ErrTooManyVms
+	}
+
+	freeMemory, err := c.JenkinsConnector.GetFreeSystemMemory()
+	if err != nil {
+		return 0, err
+	}
+	boxMemory := c.VagrantConnector.GetBoxMemory()
+
+	if boxMemory*int64(count) <= freeMemory {
+		return c.VagrantConnector.SpinUpNew(vmCount)
+	}
+	return 0, ErrNoMemory
+
 }

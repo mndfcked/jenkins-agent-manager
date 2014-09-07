@@ -26,17 +26,28 @@ import (
 
 // config flags
 const (
-	defaultServerUrl   = "http://localhost:8080"
-	flagServerUrlUsage = "Url of the jenkins installation to coordinate"
-	flagSecretUsage    = "Secret to use for auth to the server"
+	defaultServerUrl    = "http://localhost:8080"
+	usageServerUrl      = "Url of the jenkins installation to coordinate"
+	defaultSecret       = ""
+	usageSecret         = "Secret to use for auth to the server"
+	defaultListenerPort = ":8888"
+	usageListenerPort   = "Port configured in the jenkins-vm-coordinator plugin"
+	defaultMaxVms       = 1
+	usageMaxVms         = "The maximal number of vagrant machines that can be spun up"
 )
 
-var serverUrl string
-var serverSecret string
+var (
+	serverUrl    string
+	serverSecret string
+	listenerPort string
+	maxVms       int
+)
 
 func init() {
-	flag.StringVar(&serverUrl, "serverUrl", defaultServerUrl, flagServerUrlUsage)
-	flag.StringVar(&serverSecret, "serverSecret", "e335641b4fde2caad93e7144ae046c82", flagSecretUsage)
+	flag.StringVar(&serverUrl, "serverUrl", defaultServerUrl, usageServerUrl)
+	flag.StringVar(&serverSecret, "serverSecret", defaultSecret, usageSecret)
+	flag.StringVar(&listenerPort, "listenerPort", defaultListenerPort, usageListenerPort)
+	flag.IntVar(&maxVms, "maxVms", defaultMaxVms, usageMaxVms)
 }
 
 func main() {
@@ -46,9 +57,12 @@ func main() {
 	fmt.Printf("ServerUrl: %v\n", serverUrl)
 	fmt.Printf("ServerSecret: %v\n", serverSecret)
 
+	fmt.Println("\n==== Creating new configuration =====")
+	conf := NewConfiguration(serverUrl, serverSecret, listenerPort, maxVms)
+
 	fmt.Print("\n==== Trying to fetch jenkins information from ", serverUrl, " ...")
 	jc := NewJenkinsConnector(serverUrl, serverSecret)
-	comp, err := jc.requestComputerInfos()
+	comp, err := jc.requestComputerInfo()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -69,16 +83,18 @@ func main() {
 	fmt.Println("\n==== Printing data structure ====")
 	fmt.Printf("%+v", vc)
 
-	fmt.Println("\n==== Trying to create a http listener ====")
-	contr, err := NewController()
-	if err != nil {
+	fmt.Println("\n==== Trying to create HTTP listener and start controller ====")
+	if startController(vc, jc, conf); err != nil {
 		panic(err)
 	}
-	l, err := NewListener(":8888", contr)
+}
+
+func startController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configuration) error {
+	contr := NewController(vc, jc, conf)
+
+	l, err := NewListener(conf.ListenerPort, contr)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	if l.CreateSocket(":8888"); err != nil {
-		log.Fatal(err)
-	}
+	return l.CreateSocket(conf.ListenerPort)
 }
