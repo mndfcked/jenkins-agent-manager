@@ -20,23 +20,24 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 )
 
-type HudsonSwapSpaceMonitor struct {
+type hudsonSwapSpaceMonitor struct {
 	AvailablePhysicalMemory int64 `json:"availablePhysicalMemory"`
 	AvailableSwapSpace      int64 `json:"availableSwapSpace"`
 	TotalPhysicalMemory     int64 `json:"totalPhysicalMemory"`
 	TotalSwapSpace          int64 `json:"totalSwapSpace"`
 }
 
-type ComputerMonitorData struct {
-	SwapSpaceMonitor HudsonSwapSpaceMonitor `json:"hudson.node_monitors.SwapSpaceMonitor"`
+type computerMonitorData struct {
+	SwapSpaceMonitor hudsonSwapSpaceMonitor `json:"hudson.node_monitors.SwapSpaceMonitor"`
 }
 
-type Executor struct {
+type executor struct {
 	CurrentExecutable string `json:"currentExecutable"`
 	CurrentWorkUnit   string `json:"currentWorkUnit"`
 	Idle              bool   `json:"idle"`
@@ -45,16 +46,16 @@ type Executor struct {
 	Progress          int    `json:"progress"`
 }
 
-type Computer struct {
+type computer struct {
 	DisplayName string              `json:"displayName"`
-	MonitorData ComputerMonitorData `json:"monitorData"`
-	Executors   []Executor          `json:"executors"`
+	MonitorData computerMonitorData `json:"monitorData"`
+	Executors   []executor          `json:"executors"`
 }
 
 type ComputerInfo struct {
 	BusyExecutors  int        `json:"busyExecutors"`
 	TotalExecutors int        `json:"totalExecutors"`
-	Computers      []Computer `json:"computer"`
+	Computers      []computer `json:"computer"`
 }
 
 type JenkinsConnector struct {
@@ -66,8 +67,8 @@ func NewJenkinsConnector(baseUrl string, authToken string) *JenkinsConnector {
 	return &JenkinsConnector{baseUrl, authToken}
 }
 
-func (jenkins *JenkinsConnector) requestComputerInfos() (*ComputerInfo, error) {
-	url := buildUrl(jenkins.BaseUrl, jenkins.AuthToken, "/computer/api/json?depth=2")
+func (jc *JenkinsConnector) requestComputerInfo() (*ComputerInfo, error) {
+	url := buildUrl(jc.BaseUrl, jc.AuthToken, "/computer/api/json?depth=2")
 
 	resp, err := http.Get(url)
 	fmt.Println(url)
@@ -104,4 +105,18 @@ func (computerInfo *ComputerInfo) PrettyPrint() {
 		fmt.Printf("AvailableSwapSpace: %d\n", swm.AvailableSwapSpace)
 		fmt.Printf("TotalSwapSpace %d\n", swm.TotalSwapSpace)
 	}
+}
+
+func (jc *JenkinsConnector) GetFreeSystemMemory() (int64, error) {
+	c, err := jc.requestComputerInfo()
+	if err != nil {
+		return 0, err
+	}
+	for _, v := range c.Computers {
+		if v.DisplayName == "Master" {
+			return v.MonitorData.SwapSpaceMonitor.AvailablePhysicalMemory, nil
+		}
+	}
+	err = errors.New("Internal error")
+	return 0, err
 }
