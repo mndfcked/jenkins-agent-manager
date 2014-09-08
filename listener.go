@@ -18,9 +18,9 @@
 package main
 
 import (
-	"fmt"
-	"io/ioutil"
+	"log"
 	"net/http"
+	"strconv"
 )
 
 // Listener creates a socket to listen on a specified port and holds a reference to the controller to communicate to
@@ -35,19 +35,24 @@ func NewListener(port string, controller *Controller) (*Listener, error) {
 
 // CreateSocket creates a http socket for the listener on the specified port
 func (l *Listener) CreateSocket(port string) error {
-	http.HandleFunc("/", httpHandler)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		vmNumStr := r.FormValue("vmNum")
+		vmNum, err := strconv.ParseUint(vmNumStr, 0, 64)
+		if err != nil {
+			panic(err)
+		}
+
+		log.Printf("[LISTENER]: Trying to start %d boxes\n", vmNum)
+		started, err := l.Controller.StartVms(vmNum)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("[LISTENER]: Successfully started %d boxes", started)
+	})
+	http.Handle("/", handler)
 	err := http.ListenAndServe(":8888", nil)
 	if err != nil {
 		return err
 	}
 	return nil
-}
-
-func httpHandler(w http.ResponseWriter, r *http.Request) {
-	vmNum := r.FormValue("vmNum")
-	fmt.Println(vmNum)
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		fmt.Printf("%s\n", body)
-	}
 }

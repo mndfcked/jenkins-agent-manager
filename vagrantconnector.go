@@ -23,7 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"os/exec"
 	"os/user"
+	"sync"
 )
 
 var (
@@ -122,9 +125,29 @@ func (vc *VagrantConnector) GetVmCount() int {
 	return len(vc.VagrantIndex.Machines)
 }
 
-func (vc *VagrantConnector) SpinUpNew(count int) (int, error) {
-	//TODO: spin up vagrant boxes
-	return 1, nil
+func spinUpExec(cmd string, waitGrp *sync.WaitGroup) {
+	out, err := exec.Command(cmd).Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%s\n", out)
+	waitGrp.Done()
+}
+
+func (vc *VagrantConnector) SpinUpNew(count int, path string) (int, error) {
+	cmd := "vagrant up " + path
+
+	waitGrp := new(sync.WaitGroup)
+	waitGrp.Add(count)
+
+	fmt.Printf("Waiting for spin up to complete, this may take a while\n")
+	for i := 0; i <= count; i++ {
+		go spinUpExec(cmd, waitGrp)
+	}
+
+	waitGrp.Wait()
+
+	return count, nil
 }
 
 func (vc *VagrantConnector) GetBoxMemory() int64 {

@@ -18,7 +18,10 @@
 
 package main
 
-import "errors"
+import (
+	"errors"
+	"log"
+)
 
 var (
 	ErrTooManyVms = errors.New("Too many vms are running")
@@ -37,22 +40,35 @@ func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configurati
 	return &Controller{vc, jc, conf}
 }
 
-func (c *Controller) StartVms(count int) (int, error) {
+func (c *Controller) StartVms(count uint64) (int, error) {
+	log.Printf("[VC]: Received request to start %d boxes.\n", count)
 	maxVmCount := c.Config.MaxVms
 	vmCount := c.VagrantConnector.GetVmCount()
-	if maxVmCount >= vmCount {
+
+	log.Printf("[VC]: %d boxes are running, allowed to run %d boxes", vmCount, maxVmCount)
+	if vmCount+int(count) > maxVmCount {
+		log.Printf("[VC]: ERROR: Too many VMs are running")
 		return 0, ErrTooManyVms
 	}
 
 	freeMemory, err := c.JenkinsConnector.GetFreeSystemMemory()
 	if err != nil {
+		log.Printf("[VC]: ERROR: Can't get the free system memory")
 		return 0, err
 	}
 	boxMemory := c.VagrantConnector.GetBoxMemory()
 
-	if boxMemory*int64(count) <= freeMemory {
-		return c.VagrantConnector.SpinUpNew(vmCount)
+	neededMem := boxMemory * int64(count)
+	if neededMem >= freeMemory {
+		log.Printf("[VC]: ERROR got only %d byte free mem, %d byte needed", freeMemory, neededMem)
+		return 0, ErrNoMemory
 	}
-	return 0, ErrNoMemory
 
+	startedCount, err := c.VagrantConnector.SpinUpNew(vmCount, c.Config.BoxPath)
+	if err != nil {
+		log.Printf("[VC]: ERROR: Error while spining up the boxes. %d boxes started", startedCount)
+		return startedCount, err
+	}
+
+	return startedCount, nil
 }

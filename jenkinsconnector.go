@@ -113,7 +113,7 @@ func (jc *JenkinsConnector) GetFreeSystemMemory() (int64, error) {
 		return 0, err
 	}
 	for _, v := range c.Computers {
-		if v.DisplayName == "Master" {
+		if v.DisplayName == "master" {
 			return v.MonitorData.SwapSpaceMonitor.AvailablePhysicalMemory, nil
 		}
 	}
