@@ -5,8 +5,9 @@ type Configuration struct {
 	JenkinsPort  string
 	ListenerPort string
 	MaxVms       int
+	BoxPath      string
 }
 
-func NewConfiguration(ju string, jp string, lp string, mv int) *Configuration {
-	return &Configuration{ju, jp, lp, mv}
+func NewConfiguration(ju string, jp string, lp string, mv int, boxpath string) *Configuration {
+	return &Configuration{ju, jp, lp, mv, boxpath}
 }

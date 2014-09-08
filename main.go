@@ -32,15 +32,15 @@ const (
 	usageSecret         = "Secret to use for auth to the server"
 	defaultListenerPort = ":8888"
 	usageListenerPort   = "Port configured in the jenkins-vm-coordinator plugin"
-	defaultMaxVms       = 1
+	defaultMaxVms       = 200
 	usageMaxVms         = "The maximal number of vagrant machines that can be spun up"
+	defaultBoxPath      = "/home/joern/ba/testing/vagrant/jenkins-master/packer/jenkins-slave/packer-windows/win7_VS08_1.0.0-1_virtualbox.box"
+	usageBoxPath        = "The path to the Vagrant box to start the machines from"
 )
 
 var (
-	serverUrl    string
-	serverSecret string
-	listenerPort string
-	maxVms       int
+	serverUrl, serverSecret, listenerPort, boxPath string
+	maxVms                                         int
 )
 
 func init() {
@@ -48,17 +48,30 @@ func init() {
 	flag.StringVar(&serverSecret, "serverSecret", defaultSecret, usageSecret)
 	flag.StringVar(&listenerPort, "listenerPort", defaultListenerPort, usageListenerPort)
 	flag.IntVar(&maxVms, "maxVms", defaultMaxVms, usageMaxVms)
+	flag.StringVar(&boxPath, "boxPath", defaultBoxPath, usageBoxPath)
 }
+
+/*
+ *
+ * TODO: Cache all machines from vagrant global-status
+ * TODO: Create routine that searches for the desired box type and count, if not existing -> create
+ * TODO: vagrant up on free boxes, cache internal which boxes are already used
+ * TODO: reset boxes to a snapshot after it was used
+ *
+ */
 
 func main() {
 	flag.Parse()
 
 	fmt.Println("====  Service started with the following config ====")
-	fmt.Printf("ServerUrl: %v\n", serverUrl)
-	fmt.Printf("ServerSecret: %v\n", serverSecret)
+	fmt.Printf("%+v\n", serverUrl)
+	fmt.Printf("%+v\n", serverSecret)
+	fmt.Printf("%+v\n", listenerPort)
+	fmt.Printf("%+v\n", boxPath)
+	fmt.Printf("%+v\n", maxVms)
 
 	fmt.Println("\n==== Creating new configuration =====")
-	conf := NewConfiguration(serverUrl, serverSecret, listenerPort, maxVms)
+	conf := NewConfiguration(serverUrl, serverSecret, listenerPort, maxVms, boxPath)
 
 	fmt.Print("\n==== Trying to fetch jenkins information from ", serverUrl, " ...")
 	jc := NewJenkinsConnector(serverUrl, serverSecret)
