@@ -34,13 +34,15 @@ const (
 	usageListenerPort   = "Port configured in the jenkins-vm-coordinator plugin"
 	defaultMaxVms       = 200
 	usageMaxVms         = "The maximal number of vagrant machines that can be spun up"
-	defaultBoxPath      = "/home/joern/ba/testing/vagrant/jenkins-master/packer/jenkins-slave/packer-windows/win7_VS08_1.0.0-1_virtualbox.box"
+	defaultBoxPath      = "./packer-windows/win7_VS08_1.0.0-1_virtualbox.box"
 	usageBoxPath        = "The path to the Vagrant box to start the machines from"
+	defaultWorkingDir   = "./"
+	usageWorkingDir     = "The directory the coordinator saves vagrantfiles for spinning up boxes"
 )
 
 var (
-	serverUrl, serverSecret, listenerPort, boxPath string
-	maxVms                                         int
+	serverUrl, serverSecret, listenerPort, boxPath, workDir string
+	maxVms                                                  int
 )
 
 func init() {
@@ -49,6 +51,7 @@ func init() {
 	flag.StringVar(&listenerPort, "listenerPort", defaultListenerPort, usageListenerPort)
 	flag.IntVar(&maxVms, "maxVms", defaultMaxVms, usageMaxVms)
 	flag.StringVar(&boxPath, "boxPath", defaultBoxPath, usageBoxPath)
+	flag.StringVar(&workDir, "workingDir", defaultWorkingDir, usageWorkingDir)
 }
 
 /*
@@ -69,9 +72,10 @@ func main() {
 	fmt.Printf("%+v\n", listenerPort)
 	fmt.Printf("%+v\n", boxPath)
 	fmt.Printf("%+v\n", maxVms)
+	fmt.Printf("%+v\n", workDir)
 
 	fmt.Println("\n==== Creating new configuration =====")
-	conf := NewConfiguration(serverUrl, serverSecret, listenerPort, maxVms, boxPath)
+	conf := NewConfiguration(serverUrl, serverSecret, listenerPort, maxVms, boxPath, workDir)
 
 	fmt.Print("\n==== Trying to fetch jenkins information from ", serverUrl, " ...")
 	jc := NewJenkinsConnector(serverUrl, serverSecret)

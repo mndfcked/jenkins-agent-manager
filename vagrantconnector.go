@@ -26,6 +26,7 @@ import (
 	"log"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"sync"
 )
 
@@ -46,7 +47,7 @@ type vagrantExtraData struct {
 	Box vagrantBox `json:"box"`
 }
 
-type vagrantMachine struct {
+type Machine struct {
 	LocalDataPath   string           `json:"local_data_path"`
 	Name            string           `json:"name"`
 	Provider        string           `json:"provider"`
@@ -57,13 +58,13 @@ type vagrantMachine struct {
 	ExtraData       vagrantExtraData `json:"extra_data"`
 }
 
-type vagrantIndex struct {
-	Version  int                       `json:"version"`
-	Machines map[string]vagrantMachine `json:"machines"`
+type VagrantIndex struct {
+	Version  int                `json:"version"`
+	Machines map[string]Machine `json:"machines"`
 }
 
 type VagrantConnector struct {
-	VagrantIndex vagrantIndex
+	Index VagrantIndex
 }
 
 func NewVagrantConnector() (*VagrantConnector, error) {
@@ -72,13 +73,15 @@ func NewVagrantConnector() (*VagrantConnector, error) {
 		return nil, ErrNoVagrant
 	}
 
-	vc, err := loadVagrantIndex(userDir + "/.vagrant.d/data/machine-index/index")
-
+	vindex, err := loadVagrantIndex(userDir + "/.vagrant.d/data/machine-index/index")
 	if err != nil {
-		return nil, err
+		log.Println("No machine index found, it seems no vargrant boxes have been started.\nCreating empty index.")
+		vindex = new(VagrantIndex)
+		vindex.Version = 1
+		vindex.Machines = make(map[string]Machine)
 	}
 
-	return &VagrantConnector{*vc}, nil
+	return &VagrantConnector{*vindex}, nil
 }
 
 func usrDir() (string, error) {
@@ -89,13 +92,13 @@ func usrDir() (string, error) {
 	return usr.HomeDir, nil
 }
 
-func loadVagrantIndex(path string) (*vagrantIndex, error) {
+func loadVagrantIndex(path string) (*VagrantIndex, error) {
 	file, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var v vagrantIndex
+	var v VagrantIndex
 	err = json.Unmarshal(file, &v)
 	if err != nil {
 		return nil, err
@@ -105,7 +108,7 @@ func loadVagrantIndex(path string) (*vagrantIndex, error) {
 }
 
 func (vc *VagrantConnector) Print() {
-	m := vc.VagrantIndex
+	m := vc.Index
 	fmt.Printf("Vagrant Version: %d\n\n", m.Version)
 	for k, v := range m.Machines {
 		fmt.Printf("Key: %s\n", k)
@@ -122,11 +125,13 @@ func (vc *VagrantConnector) Print() {
 }
 
 func (vc *VagrantConnector) GetVmCount() int {
-	return len(vc.VagrantIndex.Machines)
+	return len(vc.Index.Machines)
 }
 
-func spinUpExec(cmd string, waitGrp *sync.WaitGroup) {
-	out, err := exec.Command(cmd).Output()
+func spinUpExec(cmd string, workingDir string, waitGrp *sync.WaitGroup) {
+	comm := exec.Command(cmd)
+	comm.Dir = workingDir
+	out, err := comm.Output()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -135,14 +140,29 @@ func spinUpExec(cmd string, waitGrp *sync.WaitGroup) {
 }
 
 func (vc *VagrantConnector) SpinUpNew(count int, path string) (int, error) {
-	cmd := "vagrant up " + path
+	workingPath := filepath.Dir(path)
+	box := filepath.Base(path)
+
+	initCmdStr := "vagrant init " + path
+	cmd := "vagrant up"
+
+	initCmd := exec.Command(initCmdStr)
+	initCmd.Dir = workingPath
+	fmt.Printf("[VC]: Initializing vagrant enviroment at %s with box %s \n", workingPath, box)
+	out, err := initCmd.CombinedOutput()
+	fmt.Printf("[VC]: Output: %s", out)
+	err = initCmd.Wait()
+	if err != nil {
+		log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", box, workingPath)
+		panic(err)
+	}
 
 	waitGrp := new(sync.WaitGroup)
 	waitGrp.Add(count)
 
 	fmt.Printf("Waiting for spin up to complete, this may take a while\n")
 	for i := 0; i <= count; i++ {
-		go spinUpExec(cmd, waitGrp)
+		go spinUpExec(cmd, workingPath, waitGrp)
 	}
 
 	waitGrp.Wait()
