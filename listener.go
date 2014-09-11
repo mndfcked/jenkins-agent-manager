@@ -20,7 +20,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"strconv"
 )
 
 // Listener creates a socket to listen on a specified port and holds a reference to the controller to communicate to
@@ -36,18 +35,12 @@ func NewListener(port string, controller *Controller) (*Listener, error) {
 // CreateSocket creates a http socket for the listener on the specified port
 func (l *Listener) CreateSocket(port string) error {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		vmNumStr := r.FormValue("vmNum")
-		vmNum, err := strconv.ParseUint(vmNumStr, 0, 64)
-		if err != nil {
-			panic(err)
-		}
-
-		log.Printf("[LISTENER]: Trying to start %d boxes\n", vmNum)
-		started, err := l.Controller.StartVms(vmNum)
-		if err != nil {
+		vmLabel := r.FormValue("vmNum")
+		log.Printf("[LISTENER]: Trying to start a box for label %s.\n", vmLabel)
+		if err := l.Controller.StartVms(vmLabel); err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("[LISTENER]: Successfully started %d boxes", started)
+		log.Printf("[LISTENER]: Successfully started a box for label %s.\n", vmLabel)
 	})
 	http.Handle("/", handler)
 	err := http.ListenAndServe(":8888", nil)

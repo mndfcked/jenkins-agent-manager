@@ -34,9 +34,9 @@ const (
 	usageListenerPort   = "Port configured in the jenkins-vm-coordinator plugin"
 	defaultMaxVms       = 200
 	usageMaxVms         = "The maximal number of vagrant machines that can be spun up"
-	defaultBoxPath      = "./packer-windows/win7_VS08_1.0.0-1_virtualbox.box"
+	defaultBoxPath      = "jenkins-slave-win7"
 	usageBoxPath        = "The path to the Vagrant box to start the machines from"
-	defaultWorkingDir   = "./"
+	defaultWorkingDir   = "/tmp"
 	usageWorkingDir     = "The directory the coordinator saves vagrantfiles for spinning up boxes"
 )
 
@@ -57,7 +57,7 @@ func init() {
 /*
  *
  * TODO: Cache all machines from vagrant global-status
- * TODO: Create routine that searches for the desired box type and count, if not existing -> create
+ * TODO: Create routine that searches for the desired box type, if not existing -> create
  * TODO: vagrant up on free boxes, cache internal which boxes are already used
  * TODO: reset boxes to a snapshot after it was used
  *
@@ -99,6 +99,9 @@ func main() {
 
 	fmt.Println("\n==== Printing data structure ====")
 	fmt.Printf("%+v", vc)
+
+	fmt.Println("\n==== Parsing Vagrant boxes index on this machine ====")
+	fmt.Printf("%+v", vc.Boxes)
 
 	fmt.Println("\n==== Trying to create HTTP listener and start controller ====")
 	if startController(vc, jc, conf); err != nil {

@@ -19,6 +19,8 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,8 +28,8 @@ import (
 	"log"
 	"os/exec"
 	"os/user"
-	"path/filepath"
-	"sync"
+	"strconv"
+	"strings"
 )
 
 var (
@@ -64,7 +66,8 @@ type VagrantIndex struct {
 }
 
 type VagrantConnector struct {
-	Index VagrantIndex
+	Index *VagrantIndex
+	Boxes *[]Box
 }
 
 func NewVagrantConnector() (*VagrantConnector, error) {
@@ -80,8 +83,76 @@ func NewVagrantConnector() (*VagrantConnector, error) {
 		vindex.Version = 1
 		vindex.Machines = make(map[string]Machine)
 	}
+	vboxes, err := parseBoxes()
+	if err != nil {
+		return nil, err
+	}
 
-	return &VagrantConnector{*vindex}, nil
+	return &VagrantConnector{vindex, vboxes}, nil
+}
+
+type Box struct {
+	CreatedAt int64
+	Name      string
+	Provider  string
+	Version   int
+}
+
+func appendBox(boxes []Box, data ...Box) []Box {
+	currLen := len(boxes)
+	newLen := currLen + len(data)
+
+	if newLen > cap(boxes) {
+		newBoxes := make([]Box, (newLen+1)*2)
+		copy(newBoxes, boxes)
+		boxes = newBoxes
+	}
+	boxes = boxes[0:newLen]
+	copy(boxes[currLen:newLen], data)
+	return boxes
+}
+
+func parseBoxes() (*[]Box, error) {
+	cmd := exec.Command("vagrant", "box", "list", "--machine-readable")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	// we have to ignore errors here because some bug set exit code to 1 even though
+	// the command was successfully executed
+	//TODO: Revisit later when there was a fix
+	_ = cmd.Start()
+
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	var boxes []Box
+	boxes = make([]Box, 0)
+	var box Box
+	for scanner.Scan() {
+		str := scanner.Text()
+		strpl := strings.Split(str, ",")
+
+		switch strpl[2] {
+		case "box-name":
+			box = *new(Box)
+			box.Name = strpl[3]
+		case "box-provider":
+			box.Provider = strpl[3]
+		case "box-version":
+			strV, err := strconv.ParseInt(strpl[3], 0, 0)
+			if err != nil {
+				return nil, err
+			}
+			box.Version = int(strV)
+			intStamp, err := strconv.ParseInt(strpl[0], 0, 64)
+			if err != nil {
+				return nil, err
+			}
+			box.CreatedAt = intStamp
+			boxes = appendBox(boxes, box)
+		}
+	}
+	return &boxes, nil
 }
 
 func usrDir() (string, error) {
@@ -128,46 +199,82 @@ func (vc *VagrantConnector) GetVmCount() int {
 	return len(vc.Index.Machines)
 }
 
-func spinUpExec(cmd string, workingDir string, waitGrp *sync.WaitGroup) {
-	comm := exec.Command(cmd)
+func spinUpExec(box string, workingDir string) {
+	//	defer waitGrp.Done()
+	comm := exec.Command("vagrant", "up")
 	comm.Dir = workingDir
-	out, err := comm.Output()
-	if err != nil {
-		log.Fatal(err)
+	var errOut bytes.Buffer
+	var stdOut bytes.Buffer
+	comm.Stderr = &errOut
+	comm.Stdout = &stdOut
+	if err := comm.Start(); err != nil {
+		log.Fatalf("[VC] ERROR: While starting command %+v\nERROR: %s\n%s\n", comm, err.Error(), errOut)
 	}
-	fmt.Printf("%s\n", out)
-	waitGrp.Done()
+	log.Printf("\n%s\n", stdOut)
+	if err := comm.Wait(); err != nil {
+		log.Fatalf("[VC] ERROR: While running command %+v\nERROR: %s\n%s\n", comm, err.Error(), errOut)
+	}
 }
 
-func (vc *VagrantConnector) SpinUpNew(count int, path string) (int, error) {
-	workingPath := filepath.Dir(path)
-	box := filepath.Base(path)
-
-	initCmdStr := "vagrant init " + path
-	cmd := "vagrant up"
-
-	initCmd := exec.Command(initCmdStr)
-	initCmd.Dir = workingPath
-	fmt.Printf("[VC]: Initializing vagrant enviroment at %s with box %s \n", workingPath, box)
-	out, err := initCmd.CombinedOutput()
-	fmt.Printf("[VC]: Output: %s", out)
-	err = initCmd.Wait()
+func vagrantfileExists(path string) bool {
+	entries, err := ioutil.ReadDir(path)
 	if err != nil {
-		log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", box, workingPath)
-		panic(err)
+		log.Fatalf("[VS] ERROR: reading directory\nERROR: %s\n", err.Error())
+		return false
 	}
 
-	waitGrp := new(sync.WaitGroup)
-	waitGrp.Add(count)
+	for _, e := range entries {
+		if !e.IsDir() {
+			log.Println("Is no directory")
+			log.Printf("Name: %s\n", e.Name())
+			if e.Name() == "Vagrantfile" {
+				return true
+			}
+		}
+	}
+	return false
+}
 
-	fmt.Printf("Waiting for spin up to complete, this may take a while\n")
-	for i := 0; i <= count; i++ {
-		go spinUpExec(cmd, workingPath, waitGrp)
+func getBox(label string) (string, error) {
+	//TODO: Implement ErrBoxNotFound, supported labels
+	return "jenkins-slave-win7", nil
+}
+
+func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
+	log.Printf("[VC] Trying to start a vagrant machine for the label %s\n", label)
+	box, err := getBox(label)
+	if err != nil {
+		return err
 	}
 
-	waitGrp.Wait()
+	if !vagrantfileExists(workingPath) {
+		initCmd := exec.Command("vagrant", "init", "--force", box)
+		initCmd.Dir = workingPath
+		var errOut bytes.Buffer
+		var out bytes.Buffer
+		initCmd.Stderr = &errOut
+		initCmd.Stdout = &out
 
-	return count, nil
+		fmt.Printf("[VC]: Initializing vagrant enviroment at %s with box %s \n", workingPath, box)
+		if err := initCmd.Start(); err != nil {
+			log.Fatalf("[VC]: ERROR: Can't start command %+v\n", initCmd)
+			return err
+		}
+		log.Printf("[VC]: Command %+v stated, waiting to finish...\n", initCmd)
+		if err := initCmd.Wait(); err != nil {
+			log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", box, workingPath)
+			log.Fatalf("\nERROR: %s\nOUTPUT: %s\n", errOut.String(), out.String())
+			return err
+		}
+	}
+
+	//	waitGrp := new(sync.WaitGroup)
+	//	waitGrp.Add(1)
+	fmt.Printf("[VC]: Waiting for spin up to complete, this may take a while\n")
+	//	go spinUpExec(box, workingPath, waitGrp)
+	//	waitGrp.Wait()
+	spinUpExec(box, workingPath)
+	return nil
 }
 
 func (vc *VagrantConnector) GetBoxMemory() int64 {
