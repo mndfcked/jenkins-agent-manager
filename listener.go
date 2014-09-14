@@ -18,6 +18,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 )
@@ -35,17 +36,20 @@ func NewListener(port string, controller *Controller) (*Listener, error) {
 // CreateSocket creates a http socket for the listener on the specified port
 func (l *Listener) CreateSocket(port string) error {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		vmLabel := r.FormValue("vmNum")
+		vmLabel := r.FormValue("label")
 		log.Printf("[LISTENER]: Trying to start a box for label %s.\n", vmLabel)
 		if err := l.Controller.StartVms(vmLabel); err != nil {
-			log.Fatal(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf("[LISTENER]: Couldn't start the requested VM. ERROR: %s\n", err)
+			return
 		}
+		fmt.Fprintf(w, "Successfully stated the box for label %s", vmLabel)
 		log.Printf("[LISTENER]: Successfully started a box for label %s.\n", vmLabel)
 	})
 	http.Handle("/", handler)
-	err := http.ListenAndServe(":8888", nil)
-	if err != nil {
+	if err := http.ListenAndServe(":8888", nil); err != nil {
 		return err
 	}
+
 	return nil
 }

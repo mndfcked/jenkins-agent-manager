@@ -36,8 +36,8 @@ type Controller struct {
 }
 
 // NewController instatiates a new Controller and returns it
-func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configuration) *Controller {
-	return &Controller{vc, jc, conf}
+func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configuration) (*Controller, error) {
+	return &Controller{vc, jc, conf}, nil
 }
 
 func (c *Controller) StartVms(label string) error {

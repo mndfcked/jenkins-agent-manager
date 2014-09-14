@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"os/user"
 	"strconv"
@@ -37,6 +38,8 @@ var (
 	ErrNoVagrant = errors.New("No Vagrant installation found")
 	// ErrNoMachines indicates that no Vagrant machines where created, for now
 	ErrNoMachines = errors.New("No machines found")
+	// ErrorBoxNotFound indicats that no box was configured for the defined label
+	ErrBoxNotFound = errors.New("No boxes for the specified lable found")
 )
 
 type vagrantBox struct {
@@ -66,11 +69,12 @@ type VagrantIndex struct {
 }
 
 type VagrantConnector struct {
-	Index *VagrantIndex
-	Boxes *[]Box
+	Index  *VagrantIndex
+	Boxes  *[]Box
+	Config *Configuration
 }
 
-func NewVagrantConnector() (*VagrantConnector, error) {
+func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	userDir, err := usrDir()
 	if err != nil {
 		return nil, ErrNoVagrant
@@ -78,7 +82,7 @@ func NewVagrantConnector() (*VagrantConnector, error) {
 
 	vindex, err := loadVagrantIndex(userDir + "/.vagrant.d/data/machine-index/index")
 	if err != nil {
-		log.Println("No machine index found, it seems no vargrant boxes have been started.\nCreating empty index.")
+		log.Println("[VC]: No machine index found, it seems no vargrant boxes have been started. Creating empty index.")
 		vindex = new(VagrantIndex)
 		vindex.Version = 1
 		vindex.Machines = make(map[string]Machine)
@@ -88,14 +92,14 @@ func NewVagrantConnector() (*VagrantConnector, error) {
 		return nil, err
 	}
 
-	return &VagrantConnector{vindex, vboxes}, nil
+	return &VagrantConnector{vindex, vboxes, conf}, nil
 }
 
 type Box struct {
 	CreatedAt int64
 	Name      string
 	Provider  string
-	Version   int
+	Version   float32
 }
 
 func appendBox(boxes []Box, data ...Box) []Box {
@@ -139,13 +143,15 @@ func parseBoxes() (*[]Box, error) {
 		case "box-provider":
 			box.Provider = strpl[3]
 		case "box-version":
-			strV, err := strconv.ParseInt(strpl[3], 0, 0)
+			v, err := strconv.ParseFloat(strpl[3], 32)
 			if err != nil {
+				log.Fatalf("[VC]: Error parsing box version string.\nError: %s\n", err.Error())
 				return nil, err
 			}
-			box.Version = int(strV)
+			box.Version = float32(v)
 			intStamp, err := strconv.ParseInt(strpl[0], 0, 64)
 			if err != nil {
+				log.Fatalf("[VC]: Error parsing box timestamp  string.\nError: %s\n", err.Error())
 				return nil, err
 			}
 			box.CreatedAt = intStamp
@@ -196,7 +202,13 @@ func (vc *VagrantConnector) Print() {
 }
 
 func (vc *VagrantConnector) GetVmCount() int {
-	return len(vc.Index.Machines)
+	var runningCount int
+	for _, machine := range vc.Index.Machines {
+		if machine.State == "running" {
+			runningCount++
+		}
+	}
+	return runningCount
 }
 
 func spinUpExec(box string, workingDir string) {
@@ -225,8 +237,6 @@ func vagrantfileExists(path string) bool {
 
 	for _, e := range entries {
 		if !e.IsDir() {
-			log.Println("Is no directory")
-			log.Printf("Name: %s\n", e.Name())
 			if e.Name() == "Vagrantfile" {
 				return true
 			}
@@ -235,34 +245,46 @@ func vagrantfileExists(path string) bool {
 	return false
 }
 
-func getBox(label string) (string, error) {
-	//TODO: Implement ErrBoxNotFound, supported labels
-	return "jenkins-slave-win7", nil
+func (vc *VagrantConnector) getBox(label string) (string, error) {
+	boxes := vc.Config.Boxes
+	for _, box := range boxes {
+		for _, boxLabel := range box.Labels {
+			if boxLabel == label {
+				return box.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("No box for the label %s configured.", label)
 }
 
 func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
 	log.Printf("[VC] Trying to start a vagrant machine for the label %s\n", label)
-	box, err := getBox(label)
+	box, err := vc.getBox(label)
 	if err != nil {
 		return err
 	}
 
-	if !vagrantfileExists(workingPath) {
+	boxPath := workingPath + "/" + box
+	if err := os.MkdirAll(boxPath, 0755); err != nil {
+		log.Printf("[VC]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s", label, workingPath, err.Error())
+		return err
+	}
+	if !vagrantfileExists(boxPath) {
 		initCmd := exec.Command("vagrant", "init", "--force", box)
-		initCmd.Dir = workingPath
+		initCmd.Dir = boxPath
 		var errOut bytes.Buffer
 		var out bytes.Buffer
 		initCmd.Stderr = &errOut
 		initCmd.Stdout = &out
 
-		fmt.Printf("[VC]: Initializing vagrant enviroment at %s with box %s \n", workingPath, box)
+		fmt.Printf("[VC]: Initializing vagrant enviroment at %s with box %s \n", boxPath, box)
 		if err := initCmd.Start(); err != nil {
 			log.Fatalf("[VC]: ERROR: Can't start command %+v\n", initCmd)
 			return err
 		}
 		log.Printf("[VC]: Command %+v stated, waiting to finish...\n", initCmd)
 		if err := initCmd.Wait(); err != nil {
-			log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", box, workingPath)
+			log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", box, boxPath)
 			log.Fatalf("\nERROR: %s\nOUTPUT: %s\n", errOut.String(), out.String())
 			return err
 		}
@@ -273,7 +295,7 @@ func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
 	fmt.Printf("[VC]: Waiting for spin up to complete, this may take a while\n")
 	//	go spinUpExec(box, workingPath, waitGrp)
 	//	waitGrp.Wait()
-	spinUpExec(box, workingPath)
+	spinUpExec(box, boxPath)
 	return nil
 }
 

@@ -1,20 +1,50 @@
 jenkins-agent-manager (jam)
 ======================
 
-A simple go program whose main purpose is to manage vagrant boxes based on the load of the JenkinsCI master.
+A simple service which manages Vagrant boxes based on the load of the Jenkins master and requested box.
+
+# Setup
+* `git clone https://github.com/mndfcked/jenkins-agent-manager.git` into your `$GOPATH/src` directory.
+* `cd` into the cloned folder, run `go install` and `jenkins-agent-manager` or `go run *.go` 
 
 # Configuration
-Currently configuration options are passed as aguments to the jam executable. Available options are listet below:
-* ```jenkinsApiUrl``` (Default: localhost:8080)
-  * Url of the Jenkins API to get the management information from.
-* ```jenkinsApiSecret``` (Dafault: "") 
-  * API secret for the Jenkins API.
-* ```listenerPort``` (Defailt: ":8888")
-  * Port the manager listener will listen for messages.
-* ```maxVms``` (Default: "2") 
-  * Number of boxes that can be run simultaneously.
-* ```workingDir``` (Default: "/tmp") 
-  * Path to the directory the manager uses to store the vagrant management files.
+jam expects a JSON formatted configuration file. The default path is set to `/etc/jenkins-agent-manager/config.json`, but you can use the flag `-confPath="/path/to/your/config/file.json"` to pass a custom path to jam.
+The sample configuration below lists all currently available options.
+```JSON
+{
+  "jenkins_api_url":"http://localhost:8080",
+  "jenkins_api_secret":"",
+  "listener_port":"8888",
+  "max_vm_count":2,
+  "working_dir_path":"/tmp",
+  "boxes":[
+    {
+      "name": "win7-slave",
+      "labels": ["windows", "windows7"]
+    },
+    {
+     "name": "centos7-slave",
+     "labels": ["linux", "centos7", "centos"]
+    }  
+  ]
+}
+```
+
+* `jenkins_api_url`
+  * The Url of the Jenkins API.
+* `jenkins_api_secret`
+  * The secret to authenticate with the Jenkins API.
+* `listener_port` 
+  * The port jam is listening on for requests.
+* `mac_vm_count`
+  * The number of vagrant boxes that can be run at the same time.
+* `working_dir_path`
+  * The path where jam creates the vagrant enviroments for the started boxes.
+* `boxes`
+  * A JSON-Array with JSON-Objects describing a vagrant box jam can use. `name` is the name of the box as provided to the `vagrant box add "name" "box"` command. labels is a JSON-Array of string that are used to identify the box to start.
 
 # Note
 This is part of my bachelor thesis and still work in progress.
+
+# Contributions
+Currently not desirable.

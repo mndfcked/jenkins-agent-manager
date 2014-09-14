@@ -63,8 +63,8 @@ type JenkinsConnector struct {
 	AuthToken string
 }
 
-func NewJenkinsConnector(baseUrl string, authToken string) *JenkinsConnector {
-	return &JenkinsConnector{baseUrl, authToken}
+func NewJenkinsConnector(baseUrl string, authToken string) (*JenkinsConnector, error) {
+	return &JenkinsConnector{baseUrl, authToken}, nil
 }
 
 func (jc *JenkinsConnector) requestComputerInfo() (*ComputerInfo, error) {
