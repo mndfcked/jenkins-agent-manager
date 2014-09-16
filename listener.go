@@ -29,6 +29,7 @@ import (
 type Listener struct {
 	Controller *Controller
 }
+
 /*
  * NewListener creates and returns a new Listener struct
  * TODO: Refactor to check for errors and return if necessary
@@ -54,7 +55,7 @@ func (l *Listener) CreateSocket(port string) error {
 		fmt.Fprintf(w, "Successfully stated the box for label %s", vmLabel)
 		log.Printf("[LISTENER]: Successfully started a box for label %s.\n", vmLabel)
 	})
-	
+
 	// Inline definition of the handler func for the destroy command
 	destroyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vmLabel := r.FormValue("label")

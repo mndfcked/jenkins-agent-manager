@@ -71,9 +71,9 @@ func (c *Controller) StartVms(label string) error {
 	return nil
 }
 
-func (c *Controller) DestroyVms(label ...string) error {
-	if err := c.vagrantConnectir.DestroyVms(label, c.Config.WorkingDirPath); err != nil {
-		log.Printf("[Controller]: Error while destroying the boxes for %s\n", label);
+func (c *Controller) DestroyVms(label string) error {
+	if err := c.VagrantConnector.DestroyVms(label, c.Config.WorkingDirPath); err != nil {
+		log.Printf("[Controller]: Error while destroying the boxes for %s\n", label)
 		return err
 	}
 	return nil
