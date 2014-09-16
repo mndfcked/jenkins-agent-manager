@@ -15,7 +15,6 @@
  * limitations under the License.
  *
  */
-
 package main
 
 import (
@@ -69,5 +68,13 @@ func (c *Controller) StartVms(label string) error {
 		return err
 	}
 
+	return nil
+}
+
+func (c *Controller) DestroyVms(label ...string) error {
+	if err := c.vagrantConnectir.DestroyVms(label, c.Config.WorkingDirPath); err != nil {
+		log.Printf("[Controller]: Error while destroying the boxes for %s\n", label);
+		return err
+	}
 	return nil
 }

@@ -15,7 +15,6 @@
  * limitations under the License.
  *
  */
-
 package main
 
 import (
@@ -74,25 +73,47 @@ type VagrantConnector struct {
 	Config *Configuration
 }
 
-func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
-	userDir, err := usrDir()
-	if err != nil {
-		return nil, ErrNoVagrant
-	}
+var vagrantIndexPath string;
 
-	vindex, err := loadVagrantIndex(userDir + "/.vagrant.d/data/machine-index/index")
+func init() {
+	path, err := loadVagrantIndexPath()
+	if err != nil {
+		log.Fatalf("[VagrantConnector]: Can't load the users home directory path. Error: %s\n", err.Error())
+	}
+	vagrantIndexPath = path
+}
+
+func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
+	vindex, err := loadVagrantIndex(vagrantIndexPath)
 	if err != nil {
 		log.Println("[VC]: No machine index found, it seems no vargrant boxes have been started. Creating empty index.")
 		vindex = new(VagrantIndex)
 		vindex.Version = 1
 		vindex.Machines = make(map[string]Machine)
 	}
+
 	vboxes, err := parseBoxes()
 	if err != nil {
 		return nil, err
 	}
 
 	return &VagrantConnector{vindex, vboxes, conf}, nil
+}
+
+func loadVagrantIndexPath() (string, error) {
+	userDir, err := usrDir()
+	if err != nil {
+		log.Printf("[VagrantConnector]: Can't load the users home directory path. Error: %s\n", err.Error())
+		return nil, err
+	}
+
+	viPath = userDir + "/.vagrant.d/data/machine-index/index"
+	_, err := os.Stat(viPath)
+	if err != nil {
+		return nil, ErrNoVagrant
+	}
+
+	return viPath, nil
 }
 
 type Box struct {
@@ -266,7 +287,7 @@ func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
 
 	boxPath := workingPath + "/" + box
 	if err := os.MkdirAll(boxPath, 0755); err != nil {
-		log.Printf("[VC]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s", label, workingPath, err.Error())
+		log.Printf("[VagrantConnector]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s", label, workingPath, err.Error())
 		return err
 	}
 	if !vagrantfileExists(boxPath) {
@@ -277,25 +298,22 @@ func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
 		initCmd.Stderr = &errOut
 		initCmd.Stdout = &out
 
-		fmt.Printf("[VC]: Initializing vagrant enviroment at %s with box %s \n", boxPath, box)
+		fmt.Printf("[VagrantConnector]: Initializing vagrant enviroment at %s with box %s \n", boxPath, box)
 		if err := initCmd.Start(); err != nil {
-			log.Fatalf("[VC]: ERROR: Can't start command %+v\n", initCmd)
+			log.Printf("[VagrantConnector]: ERROR: Can't start command %+v\n", initCmd)
 			return err
 		}
-		log.Printf("[VC]: Command %+v stated, waiting to finish...\n", initCmd)
+		log.Printf("[VagrantConnector]: Command %+v stated, waiting to finish...\n", initCmd)
 		if err := initCmd.Wait(); err != nil {
 			log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", box, boxPath)
-			log.Fatalf("\nERROR: %s\nOUTPUT: %s\n", errOut.String(), out.String())
+			log.Printf("\nERROR: %s\nOUTPUT: %s\n", errOut.String(), out.String())
 			return err
 		}
 	}
 
-	//	waitGrp := new(sync.WaitGroup)
-	//	waitGrp.Add(1)
-	fmt.Printf("[VC]: Waiting for spin up to complete, this may take a while\n")
-	//	go spinUpExec(box, workingPath, waitGrp)
-	//	waitGrp.Wait()
+	fmt.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
 	spinUpExec(box, boxPath)
+	
 	return nil
 }
 
@@ -303,3 +321,49 @@ func (vc *VagrantConnector) GetBoxMemory() int64 {
 	//TODO: Implement
 	return 2097152
 }
+
+func (vc *VagrantConnector) DestroyVms(label string, workingDir string) error {
+	box, err := getBox(l)	
+	if err != nil {
+		log.Printf("[VagrantConnector]: Cannot destroy a machine for label %s. No box found for that label. Error: %s\n", label, err.Error())
+		return err
+	}
+	
+	vi, err := loadVagrantIndex()
+	if err != nil {
+		log.Printf("[VagrantConnector]: Error while loading the vagrant index. Error: %s\n", err.Error())
+		return err
+	}
+	
+	for m := range vi.Machines {
+		if m.name == box && m.state == running {
+			return destroyBox(box, workingDir+box)
+		}
+	}
+
+	return nil
+}
+
+func destroyBox(name string, workingDir string) error {
+	cmd := exec.Command("vagrant" "destroy")
+	
+	boxPath := workingDir + name
+	cmd.Dir = boxPath
+
+	var errOut bytes.Buffer
+	var stdOut bytes.Buffer
+	cmd.Stderr = &errOut
+	cmd.StdOut = &stdOut
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("[VagrantConnector]: Error while staring the vagrant destory command in path %s. Error: %s\n", boxPath, err.Error())
+		return err;
+	}
+	
+	if err := cmd.Wait(); err!= nil {
+		log.Printf("[VagrantConnector]: Error while running the vagrant destroy command in path %s. Error: %s\n", boxPath, err.Error())
+	}
+
+	return nil
+} 
+
