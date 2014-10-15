@@ -7,3 +7,5 @@ go:
         - tip
 script:
         - go test -v ./...
+after_success:
+        - coveralls
