@@ -80,7 +80,7 @@ var vagrantIndexPath string
 func init() {
 	path, err := loadVagrantIndexPath()
 	if err != nil {
-		log.Fatalf("[VagrantConnector]: Can't load the users home directory path. Error: %s\n", err.Error())
+		log.Fatalf("[VagrantConnector]: Can't load vagrant machine index path. Error: %s\n", err.Error())
 	}
 	vagrantIndexPath = path
 }
