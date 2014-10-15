@@ -30,6 +30,8 @@ import (
 	"os/user"
 	"strconv"
 	"strings"
+
+	"github.com/docker/docker/pkg/units"
 )
 
 var (
@@ -317,9 +319,15 @@ func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
 	return nil
 }
 
-func (vc *VagrantConnector) GetBoxMemory() int64 {
-	//TODO: Implement
-	return 2097152
+func (vc *VagrantConnector) GetBoxMemory(label string) (int64, error) {
+	for _, box := range vc.Config.Boxes {
+		for _, l := range box.Labels {
+			if l == label {
+				return units.RAMInBytes(box.Memory)
+			}
+		}
+	}
+	return -1, ErrBoxNotFound
 }
 
 func (vc *VagrantConnector) DestroyVms(label string, workingDir string) error {

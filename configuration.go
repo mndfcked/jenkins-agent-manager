@@ -18,6 +18,7 @@ type Configuration struct {
 type confBox struct {
 	Name   string   `json:"name"`
 	Labels []string `json:"labels"`
+	Memory string   `json:"memory"`
 }
 
 func NewConfiguration(confFile string) (*Configuration, error) {

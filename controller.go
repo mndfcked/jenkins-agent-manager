@@ -55,7 +55,11 @@ func (c *Controller) StartVms(label string) error {
 		log.Printf("[Contr]: ERROR: Can't get the free system memory")
 		return err
 	}
-	boxMemory := c.VagrantConnector.GetBoxMemory()
+	boxMemory, err := c.VagrantConnector.GetBoxMemory(label)
+	if err != nil {
+		log.Printf("[Contr]: ERROR: Can't get required system memory for box with label %s.\n")
+		return err
+	}
 
 	//neededMem := boxMemory * int64(count)
 	if boxMemory >= freeMemory {

@@ -20,11 +20,13 @@ The sample configuration below lists all currently available options.
   "boxes":[
     {
       "name": "win7-slave",
-      "labels": ["windows", "windows7"]
+      "labels": ["windows", "windows7"],
+      "memory": "2048MB"    
     },
     {
      "name": "centos7-slave",
-     "labels": ["linux", "centos7", "centos"]
+     "labels": ["linux", "centos7", "centos"],
+     "memory": "2048MB"
     }  
   ]
 }
@@ -42,6 +44,9 @@ The sample configuration below lists all currently available options.
   * The path where jam creates the vagrant enviroments for the started boxes.
 * `boxes`
   * A JSON-Array with JSON-Objects describing a vagrant box jam can use. `name` is the name of the box as provided to the `vagrant box add "name" "box"` command. labels is a JSON-Array of string that are used to identify the box to start.
+  * `name`: The name of the box.
+  * `labels`: The labels identifing the capabillities of the box.
+  * `memory`: The amount of system memory the box will be using.
 
 # Note
 This is part of my bachelor thesis and still work in progress.
