@@ -77,45 +77,24 @@ type VagrantConnector struct {
 
 var vagrantIndexPath string
 
-func init() {
-	path, err := loadVagrantIndexPath()
-	if err != nil {
-		log.Fatalf("[VagrantConnector]: Can't load vagrant machine index path. Error: %s\n", err.Error())
-	}
-	vagrantIndexPath = path
-}
-
 func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
-	vindex, err := loadVagrantIndex(vagrantIndexPath)
+	// Parse the vagrant machines index and save them
+	vIndex, err := loadVagrantIndex()
 	if err != nil {
 		log.Println("[VC]: No machine index found, it seems no vargrant boxes have been started. Creating empty index.")
-		vindex = new(VagrantIndex)
-		vindex.Version = 1
-		vindex.Machines = make(map[string]Machine)
+		vIndex = new(VagrantIndex)
+		vIndex.Version = 1
+		vIndex.Machines = make(map[string]Machine)
 	}
 
-	vboxes, err := parseBoxes()
+	// Parse all current vagrant boxes and save them
+	vBoxes, err := parseBoxes()
 	if err != nil {
 		return nil, err
 	}
 
-	return &VagrantConnector{vindex, vboxes, conf}, nil
-}
-
-func loadVagrantIndexPath() (string, error) {
-	userDir, err := usrDir()
-	if err != nil {
-		log.Printf("[VagrantConnector]: Can't load the users home directory path. Error: %s\n", err.Error())
-		return "", err
-	}
-
-	viPath := userDir + "/.vagrant.d/data/machine-index/index"
-	_, err = os.Stat(viPath)
-	if err != nil {
-		return "", ErrNoVagrant
-	}
-
-	return viPath, nil
+	// Create a new vagrant connector and return it
+	return &VagrantConnector{vIndex, vBoxes, conf}, nil
 }
 
 type Box struct {
@@ -192,8 +171,31 @@ func usrDir() (string, error) {
 	return usr.HomeDir, nil
 }
 
-func loadVagrantIndex(path string) (*VagrantIndex, error) {
-	file, err := ioutil.ReadFile(path)
+func loadVagrantIndexPath() (string, error) {
+	userDir, err := usrDir()
+	if err != nil {
+		log.Printf("[VagrantConnector]: Can't load the users home directory path. Error: %s\n", err.Error())
+		return "", err
+	}
+
+	viPath := userDir + "/.vagrant.d/data/machine-index/index"
+	_, err = os.Stat(viPath)
+	if err != nil {
+		return "", ErrNoVagrant
+	}
+
+	return viPath, nil
+}
+
+func loadVagrantIndex() (*VagrantIndex, error) {
+	// Locate the vagrant machines index and save the path
+	vIndexPath, err := loadVagrantIndexPath()
+	if err != nil {
+		log.Printf("[VagrantConnector]: Can't load vagrant machine index path. Error: %s\n", err.Error())
+		return nil, err
+	}
+
+	file, err := ioutil.ReadFile(vIndexPath)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +339,7 @@ func (vc *VagrantConnector) DestroyVms(label string, workingDir string) error {
 		return err
 	}
 
-	vi, err := loadVagrantIndex(vagrantIndexPath)
+	vi, err := loadVagrantIndex()
 	if err != nil {
 		log.Printf("[VagrantConnector]: Error while loading the vagrant index. Error: %s\n", err.Error())
 		return err
