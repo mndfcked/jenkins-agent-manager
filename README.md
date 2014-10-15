@@ -1,6 +1,8 @@
 jenkins-agent-manager (jam)
 ======================
 
+[![Build Status](https://travis-ci.org/mndfcked/jenkins-agent-manager.svg?branch=master)](https://travis-ci.org/mndfcked/jenkins-agent-manager)
+
 A simple service which manages Vagrant boxes based on the load of the Jenkins master and requested box.
 
 # Setup
