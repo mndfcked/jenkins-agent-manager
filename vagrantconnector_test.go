@@ -2,19 +2,17 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"testing"
 )
 
-func TestSysMemory(t *testing.T) {
+func TestGetBoxMemory(t *testing.T) {
+	const sysMemBytes = 2147483648
 	conf, err := mockConfig()
 	vacon := mockVagrantConnector(conf)
 	mem, err := vacon.GetBoxMemory("windows")
-	if err != nil || mem != 2147483648 {
+	if err != nil || mem != sysMemBytes {
 		t.Errorf("Fail: %s", err)
-	} else {
-		fmt.Printf("RAM: %d\n", mem)
 	}
 }
 
