@@ -16,6 +16,16 @@ func TestGetBoxMemory(t *testing.T) {
 	}
 }
 
+func TestGetBox(t *testing.T) {
+	const boxLabel = "windows"
+	conf, err := mockConfig()
+	vacon := mockVagrantConnector(conf)
+	box, err := vacon.getBox(boxLabel)
+	if err != nil || box != "win7-slave" {
+		t.Errorf("Fail: %s", err)
+	}
+}
+
 func mockConfig() (*Configuration, error) {
 	var c Configuration
 	var configJson = []byte(`{
