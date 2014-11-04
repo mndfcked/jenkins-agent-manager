@@ -18,64 +18,21 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	"os/user"
-	"strconv"
-	"strings"
 
 	"github.com/docker/docker/pkg/units"
 )
-
-var (
-	// ErrNoVagrant indicates that no Vagrant installation was found on the system
-	ErrNoVagrant = errors.New("No Vagrant installation found")
-	// ErrNoMachines indicates that no Vagrant machines where created, for now
-	ErrNoMachines = errors.New("No machines found")
-	// ErrorBoxNotFound indicats that no box was configured for the defined label
-	ErrBoxNotFound = errors.New("No boxes for the specified lable found")
-)
-
-type vagrantBox struct {
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	Version  string `json:"version"`
-}
-
-type vagrantExtraData struct {
-	Box vagrantBox `json:"box"`
-}
-
-type Machine struct {
-	LocalDataPath   string           `json:"local_data_path"`
-	Name            string           `json:"name"`
-	Provider        string           `json:"provider"`
-	State           string           `json:"state"`
-	VagrantfileName string           `json:"vagrantfile_name"`
-	VagrantfilePath string           `json:"vagrantfile_path"`
-	UpdatedAt       string           `json:"updated_at"`
-	ExtraData       vagrantExtraData `json:"extra_data"`
-}
-
-type VagrantIndex struct {
-	Version  int                `json:"version"`
-	Machines map[string]Machine `json:"machines"`
-}
 
 type VagrantConnector struct {
 	Index  *VagrantIndex
 	Boxes  *[]Box
 	Config *Configuration
 }
-
-var vagrantIndexPath string
 
 func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	// Parse the vagrant machines index and save them
@@ -95,145 +52,6 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 
 	// Create a new vagrant connector and return it
 	return &VagrantConnector{vIndex, vBoxes, conf}, nil
-}
-
-type Box struct {
-	CreatedAt int64
-	Name      string
-	Provider  string
-	Version   float32
-}
-
-func appendBox(boxes []Box, data ...Box) []Box {
-	currLen := len(boxes)
-	newLen := currLen + len(data)
-
-	if newLen > cap(boxes) {
-		newBoxes := make([]Box, (newLen+1)*2)
-		copy(newBoxes, boxes)
-		boxes = newBoxes
-	}
-	boxes = boxes[0:newLen]
-	copy(boxes[currLen:newLen], data)
-	return boxes
-}
-
-func parseBoxes() (*[]Box, error) {
-	cmd := exec.Command("vagrant", "box", "list", "--machine-readable")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	// we have to ignore errors here because some bug set exit code to 1 even though
-	// the command was successfully executed
-	//TODO: Revisit later when there was a fix
-	_ = cmd.Start()
-
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	var boxes []Box
-	boxes = make([]Box, 0)
-	var box Box
-	for scanner.Scan() {
-		str := scanner.Text()
-		strpl := strings.Split(str, ",")
-
-		switch strpl[2] {
-		case "box-name":
-			box = *new(Box)
-			box.Name = strpl[3]
-		case "box-provider":
-			box.Provider = strpl[3]
-		case "box-version":
-			v, err := strconv.ParseFloat(strpl[3], 32)
-			if err != nil {
-				log.Fatalf("[VC]: Error parsing box version string.\nError: %s\n", err.Error())
-				return nil, err
-			}
-			box.Version = float32(v)
-			intStamp, err := strconv.ParseInt(strpl[0], 0, 64)
-			if err != nil {
-				log.Fatalf("[VC]: Error parsing box timestamp  string.\nError: %s\n", err.Error())
-				return nil, err
-			}
-			box.CreatedAt = intStamp
-			boxes = appendBox(boxes, box)
-		}
-	}
-	return &boxes, nil
-}
-
-func usrDir() (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	return usr.HomeDir, nil
-}
-
-func loadVagrantIndexPath() (string, error) {
-	userDir, err := usrDir()
-	if err != nil {
-		log.Printf("[VagrantConnector]: Can't load the users home directory path. Error: %s\n", err.Error())
-		return "", err
-	}
-
-	viPath := userDir + "/.vagrant.d/data/machine-index/index"
-	_, err = os.Stat(viPath)
-	if err != nil {
-		return "", ErrNoVagrant
-	}
-
-	return viPath, nil
-}
-
-func loadVagrantIndex() (*VagrantIndex, error) {
-	// Locate the vagrant machines index and save the path
-	vIndexPath, err := loadVagrantIndexPath()
-	if err != nil {
-		log.Printf("[VagrantConnector]: Can't load vagrant machine index path. Error: %s\n", err.Error())
-		return nil, err
-	}
-
-	file, err := ioutil.ReadFile(vIndexPath)
-	if err != nil {
-		return nil, err
-	}
-
-	var v VagrantIndex
-	err = json.Unmarshal(file, &v)
-	if err != nil {
-		return nil, err
-	}
-
-	return &v, nil
-}
-
-func (vc *VagrantConnector) Print() {
-	m := vc.Index
-	fmt.Printf("Vagrant Version: %d\n\n", m.Version)
-	for k, v := range m.Machines {
-		fmt.Printf("Key: %s\n", k)
-		fmt.Printf("Name: %s\n", v.Name)
-		fmt.Printf("local_data_path: %s\n", v.LocalDataPath)
-		fmt.Printf("provider: t%s\n", v.Provider)
-		fmt.Printf("state: %s\n", v.State)
-		fmt.Printf("vagrantfile name: %s\n", v.VagrantfileName)
-		fmt.Printf("vagrantfile path: %s\n", v.VagrantfilePath)
-		fmt.Printf("updated at: %s\n", v.UpdatedAt)
-		fmt.Printf("extra data: ")
-		fmt.Println(v.ExtraData, "\n")
-	}
-}
-
-func (vc *VagrantConnector) GetVmCount() int {
-	var runningCount int
-	for _, machine := range vc.Index.Machines {
-		if machine.State == "running" {
-			runningCount++
-		}
-	}
-	return runningCount
 }
 
 func spinUpExec(box string, workingDir string) {
@@ -270,7 +88,8 @@ func vagrantfileExists(path string) bool {
 	return false
 }
 
-func (vc *VagrantConnector) getBox(label string) (string, error) {
+//TODO: Fixup
+func (vc *VagrantConnector) getBoxNameFor(label string) (string, error) {
 	boxes := vc.Config.Boxes
 	for _, box := range boxes {
 		for _, boxLabel := range box.Labels {
@@ -282,7 +101,8 @@ func (vc *VagrantConnector) getBox(label string) (string, error) {
 	return "", fmt.Errorf("No box for the label %s configured.", label)
 }
 
-func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
+//TODO: Fixup
+func (vc *VagrantConnector) startMachineFor(label string, workingPath string) error {
 	log.Printf("[VC] Trying to start a vagrant machine for the label %s\n", label)
 	box, err := vc.getBox(label)
 	if err != nil {
@@ -321,7 +141,7 @@ func (vc *VagrantConnector) SpinUpNew(label string, workingPath string) error {
 	return nil
 }
 
-func (vc *VagrantConnector) GetBoxMemory(label string) (int64, error) {
+func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 	for _, box := range vc.Config.Boxes {
 		for _, l := range box.Labels {
 			if l == label {
@@ -332,8 +152,8 @@ func (vc *VagrantConnector) GetBoxMemory(label string) (int64, error) {
 	return -1, ErrBoxNotFound
 }
 
-func (vc *VagrantConnector) DestroyVms(label string, workingDir string) error {
-	box, err := vc.getBox(label)
+func (vc *VagrantConnector) DestroyMachineFor(label string, workingDir string) error {
+	box, err := vc.getBoxNameFor(label)
 	if err != nil {
 		log.Printf("[VagrantConnector]: Cannot destroy a machine for label %s. No box found for that label. Error: %s\n", label, err.Error())
 		return err
