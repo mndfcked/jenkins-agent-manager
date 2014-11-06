@@ -76,5 +76,7 @@ func (l *Listener) CreateSocket(port string) error {
 		return err
 	}
 
+	log.Println("[Listener] Listener successfully created. Listening on handlers /start and /destroy")
+
 	return nil
 }

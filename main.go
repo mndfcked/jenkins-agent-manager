@@ -101,9 +101,11 @@ func main() {
 	log.Println("Successfully create controller instance.")
 	fmt.Println("======================================\n")
 
+	fmt.Println("==== Creating listener instance ====")
 	if createListener(conf, contr); err != nil {
 		log.Panicf("[MAIN]: ERROR: Couldn't create HTTP listener.\nError: %s\n", err.Error())
 	}
+	log.Println("Successfully created HTTP listener")
 }
 
 func createListener(conf *Configuration, c *Controller) error {

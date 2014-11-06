@@ -40,34 +40,38 @@ func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configurati
 }
 
 func (c *Controller) StartVms(label string) error {
-	log.Printf("[Contr]: Received request to start a box for label %s.\n", label)
+	log.Printf("[Controller] Received request to start a box for label %s.\n", label)
 	maxVmCount := c.Config.MaxVms
-	vmCount := c.VagrantConnector.GetVmCount()
+	vmCount, err := c.VagrantConnector.GetRunningMachineCount()
+	if err != nil {
+		log.Printf("[Controller] Error while getting number of running machines. Error: %s\n", err)
+		return err
+	}
 
-	log.Printf("[Contr]: %d boxes are running, allowed to run %d boxes", vmCount, maxVmCount)
+	log.Printf("[Controller] %d boxes are running, allowed to run %d boxes", vmCount, maxVmCount)
 	if vmCount+1 > maxVmCount {
-		log.Printf("[Contr]: ERROR: Too many VMs are running")
+		log.Printf("[Controller] ERROR: Too many VMs are running")
 		return ErrTooManyVms
 	}
 
 	freeMemory, err := c.JenkinsConnector.GetFreeSystemMemory()
 	if err != nil {
-		log.Printf("[Contr]: ERROR: Can't get the free system memory")
+		log.Printf("[Controller] ERROR: Can't get the free system memory")
 		return err
 	}
-	boxMemory, err := c.VagrantConnector.GetBoxMemory(label)
+	boxMemory, err := c.VagrantConnector.GetBoxMemoryFor(label)
 	if err != nil {
-		log.Printf("[Contr]: ERROR: Can't get required system memory for box with label %s.\n")
+		log.Printf("[Controller] ERROR: Can't get required system memory for box with label %s.\n")
 		return err
 	}
 
 	//neededMem := boxMemory * int64(count)
 	if boxMemory >= freeMemory {
-		log.Printf("[Contr]: ERROR got only %d byte free mem, %d byte needed", freeMemory, boxMemory)
+		log.Printf("[Controller] ERROR got only %d byte free mem, %d byte needed", freeMemory, boxMemory)
 		return ErrNoMemory
 	}
 
-	if err := c.VagrantConnector.SpinUpNew(label, c.Config.WorkingDirPath); err != nil {
+	if err := c.VagrantConnector.StartMachineFor(label, c.Config.WorkingDirPath); err != nil {
 		log.Printf("[Contr]: ERROR: Error while spining up the box for label %s.\n", label)
 		return err
 	}
@@ -76,7 +80,7 @@ func (c *Controller) StartVms(label string) error {
 }
 
 func (c *Controller) DestroyVms(label string) error {
-	if err := c.VagrantConnector.DestroyVms(label, c.Config.WorkingDirPath); err != nil {
+	if err := c.VagrantConnector.DestroyMachineFor(label, c.Config.WorkingDirPath); err != nil {
 		log.Printf("[Controller]: Error while destroying the boxes for %s\n", label)
 		return err
 	}
