@@ -20,6 +20,8 @@ package main
 import (
 	"errors"
 	"log"
+
+	"github.com/cloudfoundry/gosigar"
 )
 
 var (
@@ -54,11 +56,14 @@ func (c *Controller) StartVms(label string) error {
 		return ErrTooManyVms
 	}
 
-	freeMemory, err := c.JenkinsConnector.GetFreeSystemMemory()
-	if err != nil {
-		log.Printf("[Controller] ERROR: Can't get the free system memory")
-		return err
-	}
+	/*
+		freeMemory, err := c.JenkinsConnector.GetFreeSystemMemory()
+		if err != nil {
+			log.Printf("[Controller] ERROR: Can't get the free system memory")
+			return err
+		}
+	*/
+	freeMemory := getFreeMemory()
 	boxMemory, err := c.VagrantConnector.GetBoxMemoryFor(label)
 	if err != nil {
 		log.Printf("[Controller] ERROR: Can't get required system memory for box with label %s.\n")
@@ -66,7 +71,7 @@ func (c *Controller) StartVms(label string) error {
 	}
 
 	//neededMem := boxMemory * int64(count)
-	if boxMemory >= freeMemory {
+	if uint64(boxMemory) >= freeMemory {
 		log.Printf("[Controller] ERROR got only %d byte free mem, %d byte needed", freeMemory, boxMemory)
 		return ErrNoMemory
 	}
@@ -77,6 +82,14 @@ func (c *Controller) StartVms(label string) error {
 	}
 
 	return nil
+}
+
+func getFreeMemory() uint64 {
+	mem := sigar.Mem{}
+	mem.Get()
+
+	log.Printf("[Controller] Currently free system memory %d\n", mem.ActualFree)
+	return mem.ActualFree
 }
 
 func (c *Controller) DestroyVms(label string) error {
