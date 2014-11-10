@@ -28,7 +28,7 @@ import (
  * Definition of configuration constants
  */
 const (
-	defaultConfPath = "/etc/jenkins-agent-manager/config.json"
+	defaultConfPath = "config.json"
 	usageConfPath   = "Path to the configuration file. Has to be valid JSON format"
 )
 
