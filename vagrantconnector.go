@@ -48,7 +48,7 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 		vIndex.Machines = make(map[string]govagrant.VagrantMachine)
 	}
 	// Parse all current vagrant boxes and save them
-	vBoxes, err := govagrant.ParseBoxes()
+	vBoxes, err := govagrant.BoxList()
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,6 @@ func spinUpExec(box string, workingDir string) {
 	}
 }
 
-//TODO: Fixup
 func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	boxes := vc.Config.Boxes
 	for _, box := range boxes {
@@ -87,7 +86,6 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	return "", fmt.Errorf("No box for the label %s configured.", label)
 }
 
-//TODO: Fixup
 func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) error {
 	log.Printf("[VC] Trying to start a vagrant machine for the label %s\n", label)
 	boxName, err := vc.GetBoxNameFor(label)
