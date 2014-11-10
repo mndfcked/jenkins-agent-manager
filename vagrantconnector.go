@@ -21,9 +21,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/docker/docker/pkg/units"
 	"github.com/mndfcked/govagrant"
@@ -58,20 +60,7 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 }
 
 func spinUpExec(box string, workingDir string) {
-	//	defer waitGrp.Done()
-	comm := exec.Command("vagrant", "up")
-	comm.Dir = workingDir
-	var errOut bytes.Buffer
-	var stdOut bytes.Buffer
-	comm.Stderr = &errOut
-	comm.Stdout = &stdOut
-	if err := comm.Start(); err != nil {
-		log.Fatalf("[VC] ERROR: While starting command %+v\nERROR: %s\n%s\n", comm, err.Error(), errOut)
-	}
-	log.Printf("\n%s\n", stdOut)
-	if err := comm.Wait(); err != nil {
-		log.Fatalf("[VC] ERROR: While running command %+v\nERROR: %s\n%s\n", comm, err.Error(), errOut)
-	}
+
 }
 
 //TODO: Fixup
@@ -89,39 +78,44 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 
 //TODO: Fixup
 func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) error {
-	log.Printf("[VC] Trying to start a vagrant machine for the label %s\n", label)
+	log.Printf("[VagrantConnector] Trying to start a vagrant machine for the label %s\n", label)
 	boxName, err := vc.GetBoxNameFor(label)
 	if err != nil {
+		log.Printf("[VagrantConnector]: ERROR while retriving box name for label %s. Error: %s\n", label, err)
 		return err
 	}
+	vagrantfilePath := filepath.Join(workingPath, boxName, "Vagrantfile")
+	vagrantfileDirPath := filepath.Dir(vagrantfilePath)
+	if !govagrant.VagrantfileExists(vagrantfilePath) {
+		log.Printf("[VagrantConnector]: Vagrantfile not found, creating new in path %s\n", vagrantfilePath)
+		if err := os.MkdirAll(vagrantfileDirPath, 0755); err != nil {
+			log.Printf("[VagrantConnector]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s\n", label, workingPath, err.Error())
+			return err
+		}
 
-	boxPath := workingPath + "/" + boxName
-	if err := os.MkdirAll(boxPath, 0755); err != nil {
-		log.Printf("[VagrantConnector]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s", label, workingPath, err.Error())
-		return err
+		initCmd := exec.Command("vagrant", "init", "--force", "--minimal", boxName)
+		initCmd.Dir = vagrantfileDirPath
+		var errOut bytes.Buffer
+		var out bytes.Buffer
+		initCmd.Stderr = &errOut
+		initCmd.Stdout = &out
+
+		fmt.Printf("[VagrantConnector]: Initializing vagrant enviroment at %s with box %s \n", vagrantfileDirPath, boxName)
+		if err := initCmd.Start(); err != nil {
+			log.Printf("[VagrantConnector]: ERROR: Can't start command %+v\n", initCmd)
+			return err
+		}
+		log.Printf("[VagrantConnector]: Command %+v stated, waiting to finish...\n", initCmd)
+		if err := initCmd.Wait(); err != nil {
+			log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", boxName, vagrantfileDirPath)
+			log.Printf("\nERROR: %s\nOUTPUT: %s\n", errOut.String(), out.String())
+			return err
+
+		}
 	}
-	initCmd := exec.Command("vagrant", "init", "--force", boxName)
-	initCmd.Dir = boxPath
-	var errOut bytes.Buffer
-	var out bytes.Buffer
-	initCmd.Stderr = &errOut
-	initCmd.Stdout = &out
-
-	fmt.Printf("[VagrantConnector]: Initializing vagrant enviroment at %s with box %s \n", boxPath, boxName)
-	if err := initCmd.Start(); err != nil {
-		log.Printf("[VagrantConnector]: ERROR: Can't start command %+v\n", initCmd)
-		return err
-	}
-	log.Printf("[VagrantConnector]: Command %+v stated, waiting to finish...\n", initCmd)
-	if err := initCmd.Wait(); err != nil {
-		log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", boxName, boxPath)
-		log.Printf("\nERROR: %s\nOUTPUT: %s\n", errOut.String(), out.String())
-		return err
-
-	}
-
 	fmt.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
-	spinUpExec(boxName, boxPath)
+
+	govagrant.Up(vagrantfilePath)
 
 	return nil
 }
@@ -183,17 +177,32 @@ func destroyBox(name string, workingDir string) error {
 }
 
 func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
-	machines, err := govagrant.Status(vc.Config.WorkingDirPath)
+	path := vc.Config.WorkingDirPath
+	count := 0
+	dirs, err := ioutil.ReadDir(path)
 	if err != nil {
-		log.Printf("[VagrantConnector]: Error while getting vagrant status in path %s. Error: %s\n", vc.Config.WorkingDirPath, err.Error())
-		return -1, err
+		log.Printf("[VagrantConnector] ERROR while reading running vagrant machines in %s. Error: %s\n", path, err)
 	}
-	runningMachines := 0
-	for _, m := range *machines {
-		if m.State == "running" {
-			runningMachines++
+
+	for _, dir := range dirs {
+		if dir.IsDir() {
+			log.Printf("[VagrantConnector] Checking %s for Vagrantfile\n", path)
+			machines, err := govagrant.Status(filepath.Join(path, dir.Name(), "Vagrantfile"))
+
+			if err != nil && err != govagrant.ErrVagrantfileNotFound {
+				log.Printf("[VagrantConnector]: Error while getting vagrant status in path %s. Error: %s\n", vc.Config.WorkingDirPath, err.Error())
+				return 0, err
+			} else if err != nil && err == govagrant.ErrVagrantfileNotFound {
+				continue
+			}
+
+			for _, m := range *machines {
+				if m.State == "running" {
+					count++
+				}
+			}
 		}
 	}
 
-	return runningMachines, nil
+	return count, nil
 }
