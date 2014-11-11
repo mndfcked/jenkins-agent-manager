@@ -18,13 +18,11 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/docker/docker/pkg/units"
@@ -99,25 +97,7 @@ func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) er
 			return err
 		}
 
-		initCmd := exec.Command("vagrant", "init", "--force", "--minimal", boxName)
-		initCmd.Dir = vagrantfileDirPath
-		var errOut bytes.Buffer
-		var out bytes.Buffer
-		initCmd.Stderr = &errOut
-		initCmd.Stdout = &out
-
-		fmt.Printf("[VagrantConnector]: Initializing vagrant enviroment at %s with box %s \n", vagrantfileDirPath, boxName)
-		if err := initCmd.Start(); err != nil {
-			log.Printf("[VagrantConnector]: ERROR: Can't start command %+v\n", initCmd)
-			return err
-		}
-		log.Printf("[VagrantConnector]: Command %+v stated, waiting to finish...\n", initCmd)
-		if err := initCmd.Wait(); err != nil {
-			log.Printf("[VC]: ERROR: Can't spin up box %s at %s\n", boxName, vagrantfileDirPath)
-			log.Printf("\nERROR: %s\nOUTPUT: %s\n", errOut.String(), out.String())
-			return err
-
-		}
+		govagrant.Init(vagrantfilePath, boxName)
 	}
 	fmt.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
 
