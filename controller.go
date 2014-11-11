@@ -55,14 +55,6 @@ func (c *Controller) StartVms(label string) error {
 		log.Printf("[Controller] ERROR: Too many VMs are running")
 		return ErrTooManyVms
 	}
-
-	/*
-		freeMemory, err := c.JenkinsConnector.GetFreeSystemMemory()
-		if err != nil {
-			log.Printf("[Controller] ERROR: Can't get the free system memory")
-			return err
-		}
-	*/
 	freeMemory := getFreeMemory()
 	boxMemory, err := c.VagrantConnector.GetBoxMemoryFor(label)
 	if err != nil {
@@ -70,7 +62,7 @@ func (c *Controller) StartVms(label string) error {
 		return err
 	}
 
-	//neededMem := boxMemory * int64(count)
+	log.Printf("[Controller] System has %d Bytes free memory, box %s needs %d Bytes of system memory.\n", freeMemory, label, boxMemory)
 	if uint64(boxMemory) >= freeMemory {
 		log.Printf("[Controller] ERROR got only %d byte free mem, %d byte needed", freeMemory, boxMemory)
 		return ErrNoMemory
