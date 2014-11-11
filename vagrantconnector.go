@@ -71,6 +71,7 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 
 func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	boxes := vc.Config.Boxes
+
 	for _, box := range boxes {
 		for _, boxLabel := range box.Labels {
 			if boxLabel == label {
@@ -78,18 +79,22 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 			}
 		}
 	}
+
 	return "", fmt.Errorf("No box for the label %s configured.", label)
 }
 
 func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) error {
 	log.Printf("[VagrantConnector] Trying to start a vagrant machine for the label %s\n", label)
 	boxName, err := vc.GetBoxNameFor(label)
+
 	if err != nil {
 		log.Printf("[VagrantConnector]: ERROR while retriving box name for label %s. Error: %s\n", label, err)
 		return err
 	}
+
 	vagrantfilePath := filepath.Join(workingPath, boxName, "Vagrantfile")
 	vagrantfileDirPath := filepath.Dir(vagrantfilePath)
+
 	if !govagrant.VagrantfileExists(vagrantfilePath) {
 		log.Printf("[VagrantConnector]: Vagrantfile not found, creating new in path %s\n", vagrantfilePath)
 		if err := os.MkdirAll(vagrantfileDirPath, 0755); err != nil {
@@ -114,11 +119,13 @@ func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 			}
 		}
 	}
+
 	return -1, ErrBoxNotFound
 }
 
 func (vc *VagrantConnector) DestroyMachineFor(label string, workingDir string) error {
 	log.Printf("[VagrantConnector] Received request to destroy a box with the label %s.\n", label)
+
 	box, err := vc.GetBoxNameFor(label)
 	if err != nil {
 		log.Printf("[VagrantConnector] Cannot destroy a machine for label %s. No box found for that label. Error: %s.\n", label, err.Error())
