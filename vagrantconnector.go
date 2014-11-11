@@ -42,25 +42,33 @@ type VagrantConnector struct {
 
 func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	// Parse the vagrant machines index and save them
+	log.Println("[VagrantConnector] Loading machine indes...")
+
 	vIndex, err := govagrant.GetMachineIndex()
 	if err != nil {
-		log.Println("[VC]: No machine index found, it seems no vargrant boxes have been started. Creating empty index.")
+		log.Println("[VagrantConnector] No machine index found, it seems no vargrant boxes have been started. Creating empty index.")
 		vIndex = new(govagrant.VagrantMachineIndex)
 		vIndex.Version = 1
 		vIndex.Machines = make(map[string]govagrant.VagrantMachine)
 	}
+	log.Println("[VagrantConnector] Successfully loaded the following machines:")
+	vIndex.Print()
+
 	// Parse all current vagrant boxes and save them
+	log.Println("[VagrantConnector] Loading boxes list...")
+
 	vBoxes, err := govagrant.BoxList()
 	if err != nil {
 		return nil, err
 	}
 
+	log.Println("[VagrantConnector] Successfully oaded the following boxes:")
+	for _, box := range *vBoxes {
+		box.Print()
+	}
+
 	// Create a new vagrant connector and return it
 	return &VagrantConnector{vIndex, vBoxes, conf}, nil
-}
-
-func spinUpExec(box string, workingDir string) {
-
 }
 
 func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
@@ -130,45 +138,25 @@ func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 }
 
 func (vc *VagrantConnector) DestroyMachineFor(label string, workingDir string) error {
+	log.Printf("[VagrantConnector] Received request to destroy a box with the label %s.\n", label)
 	box, err := vc.GetBoxNameFor(label)
 	if err != nil {
-		log.Printf("[VagrantConnector]: Cannot destroy a machine for label %s. No box found for that label. Error: %s\n", label, err.Error())
+		log.Printf("[VagrantConnector] Cannot destroy a machine for label %s. No box found for that label. Error: %s.\n", label, err.Error())
 		return err
 	}
 
-	vi, err := govagrant.GetMachineIndex()
+	vagrantfilePath := filepath.Join(workingDir, box, "Vagrantfile")
+	machines, err := govagrant.Status(vagrantfilePath)
 	if err != nil {
-		log.Printf("[VagrantConnector]: Error while loading the vagrant index. Error: %s\n", err.Error())
+		log.Printf("[VagrantConnector] Error while getting the vagrant status for %s. Error: %s.\n", vagrantfilePath, err.Error())
 		return err
 	}
 
-	for _, m := range vi.Machines {
-		if m.Name == box && m.State == "running" {
-			return destroyBox(box, workingDir+box)
+	for _, m := range *machines {
+		if m.State == "running" {
+			log.Printf("[VagrantConnector] Found machine %s with running state. Trying to destroy it\n", m.Name)
+			return govagrant.Destroy(vagrantfilePath)
 		}
-	}
-
-	return nil
-}
-
-func destroyBox(name string, workingDir string) error {
-	cmd := exec.Command("vagrant", "destroy")
-
-	boxPath := workingDir + name
-	cmd.Dir = boxPath
-
-	var errOut bytes.Buffer
-	var stdOut bytes.Buffer
-	cmd.Stderr = &errOut
-	cmd.Stdout = &stdOut
-
-	if err := cmd.Start(); err != nil {
-		log.Printf("[VagrantConnector]: Error while staring the vagrant destory command in path %s. Error: %s\n", boxPath, err.Error())
-		return err
-	}
-
-	if err := cmd.Wait(); err != nil {
-		log.Printf("[VagrantConnector]: Error while running the vagrant destroy command in path %s. Error: %s\n", boxPath, err.Error())
 	}
 
 	return nil
