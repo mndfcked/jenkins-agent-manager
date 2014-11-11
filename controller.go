@@ -17,17 +17,40 @@
  */
 package main
 
+//TODO: Implement new design
+// 	- save started VMs in a file or sqlitedb
+//	- start every vm in a new folder with a sha256 generated name (=> vagrantconnector)
+//	- check before every start of a new machine, wheter it there is a free, already created machine available
+//	- return the sha256 folder name as id (=> listener)
+//	- requere an id for destroying a machine (=>listener)
+//	- don't destroy a machine, snapshot and restore instead (=> vagrantconnector, only when already created)
+
 import (
-	"errors"
+	"fmt"
 	"log"
 
 	"github.com/cloudfoundry/gosigar"
 )
 
-var (
-	ErrTooManyVms = errors.New("Too many vms are running")
-	ErrNoMemory   = errors.New("Not enough system memory available")
-)
+// A TooManyVmsError tells the caller that the via configuration defined maximum count von machines is exeeded
+type TooManyVmsError struct {
+	RunningVms   int
+	RequestedVms int
+}
+
+func (e *TooManyVmsError) Error() string {
+	return fmt.Sprintf("Too many VMs are running. Max. allowed VMs are %d requested: %d", e.RunningVms, e.RequestedVms)
+}
+
+// A NoFreeMemoryError tells the caller that there is not enough free system memory available to start the new machine
+type NoFreeMemoryError struct {
+	FreeMemory      uint64
+	RequestedMemory uint64
+}
+
+func (e *NoFreeMemoryError) Error() string {
+	return fmt.Sprintf("Not enought free systen memory. The System has %d Bytes of free system memory, requested where %d Bytes", e.RequestedMemory, e.FreeMemory)
+}
 
 // Controller struct gives other type to hold reference to it
 type Controller struct {
@@ -43,6 +66,40 @@ func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configurati
 
 func (c *Controller) StartVms(label string) error {
 	log.Printf("[Controller] Received request to start a box for label %s.\n", label)
+
+	boxMemory, err := c.VagrantConnector.GetBoxMemoryFor(label)
+	if err != nil {
+		return err
+	}
+
+	if err := c.checkMaxVMCount(); err != nil {
+		log.Printf("[Controller] Error while checking for max. concurrently allowed machines. Error: %s\n", err)
+		return err
+	}
+
+	if err := checkFreeSysMem(uint64(boxMemory)); err != nil {
+		log.Printf("[Controller] Error while checking free system memory for box %s. Error: %s\n", label, err)
+		return err
+	}
+
+	if err := c.VagrantConnector.StartMachineFor(label, c.Config.WorkingDirPath); err != nil {
+		log.Printf("[Controller] Error while spining up the box for label %s. Error: %s\n", label, err)
+		return err
+	}
+
+	return nil
+}
+
+func checkFreeSysMem(boxMemory uint64) error {
+	freeMemory := getFreeMemory()
+	if boxMemory >= freeMemory {
+		return &NoFreeMemoryError{freeMemory, boxMemory}
+	} else {
+		return nil
+	}
+}
+
+func (c *Controller) checkMaxVMCount() error {
 	maxVmCount := c.Config.MaxVms
 	vmCount, err := c.VagrantConnector.GetRunningMachineCount()
 	if err != nil {
@@ -52,28 +109,10 @@ func (c *Controller) StartVms(label string) error {
 
 	log.Printf("[Controller] %d boxes are running, allowed to run %d boxes", vmCount, maxVmCount)
 	if vmCount+1 > maxVmCount {
-		log.Printf("[Controller] ERROR: Too many VMs are running")
-		return ErrTooManyVms
+		return &TooManyVmsError{vmCount + 1, maxVmCount}
+	} else {
+		return nil
 	}
-	freeMemory := getFreeMemory()
-	boxMemory, err := c.VagrantConnector.GetBoxMemoryFor(label)
-	if err != nil {
-		log.Printf("[Controller] ERROR: Can't get required system memory for box with label %s.\n")
-		return err
-	}
-
-	log.Printf("[Controller] System has %d Bytes free memory, box %s needs %d Bytes of system memory.\n", freeMemory, label, boxMemory)
-	if uint64(boxMemory) >= freeMemory {
-		log.Printf("[Controller] ERROR got only %d byte free mem, %d byte needed", freeMemory, boxMemory)
-		return ErrNoMemory
-	}
-
-	if err := c.VagrantConnector.StartMachineFor(label, c.Config.WorkingDirPath); err != nil {
-		log.Printf("[Contr]: ERROR: Error while spining up the box for label %s.\n", label)
-		return err
-	}
-
-	return nil
 }
 
 func getFreeMemory() uint64 {
