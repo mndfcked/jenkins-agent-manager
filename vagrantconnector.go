@@ -18,7 +18,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -29,8 +28,14 @@ import (
 	"github.com/mndfcked/govagrant"
 )
 
-// ErrorBoxNotFound indicats that no box was configured for the defined label
-var ErrBoxNotFound = errors.New("No boxes for the specified lable found")
+// BoxNotFoundError tells the caller that no vagrant box for the given label was configured in the configuration file
+type BoxNotFoundError struct {
+	Label string
+}
+
+func (e *BoxNotFoundError) Error() string {
+	return fmt.Sprintf("No Box for label %s configured", e.Label)
+}
 
 type VagrantConnector struct {
 	Index  *govagrant.VagrantMachineIndex
@@ -80,7 +85,7 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("No box for the label %s configured.", label)
+	return "", &BoxNotFoundError{label}
 }
 
 func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) error {
@@ -104,7 +109,7 @@ func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) er
 
 		govagrant.Init(vagrantfilePath, boxName)
 	}
-	fmt.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
+	log.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
 
 	govagrant.Up(vagrantfilePath)
 
@@ -120,7 +125,7 @@ func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 		}
 	}
 
-	return -1, ErrBoxNotFound
+	return -1, &BoxNotFoundError{label}
 }
 
 func (vc *VagrantConnector) DestroyMachineFor(label string, workingDir string) error {
