@@ -25,3 +25,6 @@ config.json
 
 # vim specific
 tags
+
+# sqlite files
+*.db
