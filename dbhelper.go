@@ -4,24 +4,40 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var patches = [...]string{"CREATE TABLE machines (id text not null primary key, label text, createdAt integer);",
-	"CREATE TABLE zweite (id text not null primary key, label text, createdAt integer);",
-	"CREATE TABLE dreote (id text not null primary key, label text, createdAt integer);"}
+var patches = [...]string{"CREATE TABLE machines (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, label TEXT NOT NULL, state TEXT NOT NULL, version INTEGER NOT NULL, createdAt TEXT NOT NULL, modifiedAt TEXT);"}
 
 type DbHelper struct {
-	Database *sql.DB
+	Path    string
+	Version uint
+}
+
+type DbMachine struct {
+	Id         string
+	Name       string
+	Label      string
+	State      string
+	Version    uint
+	CreatedAt  string
+	ModifiedAt string
 }
 
 func NewDbHelper(path string, version uint) (*DbHelper, error) {
+
+	if version > uint(len(patches)) {
+		return nil, fmt.Errorf("The requested version %d is to high", version)
+	}
+
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
-		log.Println(err)
+		log.Printf("[DbHelper] Error while opening database %s. Error: %s\n", path, err)
 		return nil, err
 	}
+	defer db.Close()
 
 	oldVersion, err := getVersion(db)
 	if oldVersion < version {
@@ -32,7 +48,7 @@ func NewDbHelper(path string, version uint) (*DbHelper, error) {
 
 	}
 
-	return &DbHelper{db}, nil
+	return &DbHelper{path, version}, nil
 }
 
 func setVersion(db *sql.DB, version uint) {
@@ -43,18 +59,21 @@ func setVersion(db *sql.DB, version uint) {
 }
 
 func getVersion(db *sql.DB) (uint, error) {
-	var getUserVersionQuery = "PRAGMA user_version;"
-	row, _ := db.Query(getUserVersionQuery)
+	const getUserVersionQuery = "PRAGMA user_version;"
+	row := db.QueryRow(getUserVersionQuery)
 
-	for row.Next() {
-		version := make([]byte, 16)
-		if err := row.Scan(&version); err != nil {
-			log.Printf("[DbHelper] Error while getting database version pragma. Error: %s\nQuery: %s\n", err, getUserVersionQuery)
-		}
-		log.Printf("String: %s, Zahl: %d. Struct: %+v, %#v, HEx: %x", version, version, version, version, version)
+	if row == nil {
+		log.Fatalf("%s not found", getUserVersionQuery)
+		return 0, fmt.Errorf("Result row for Query: %s was empty.", getUserVersionQuery)
 	}
 
-	return 1, nil
+	var version int
+	if err := row.Scan(&version); err != nil {
+		log.Printf("[DbHelper] Error while getting database version pragma. Error: %s\nQuery: %s\n", err, getUserVersionQuery)
+		return 0, err
+	}
+
+	return uint(version), nil
 }
 
 func updateSchema(db *sql.DB, oldVersion uint, newVersion uint) error {
@@ -84,35 +103,155 @@ func updateSchema(db *sql.DB, oldVersion uint, newVersion uint) error {
 	return nil
 }
 
-func getSchemaVersion(db *sql.DB) uint {
-	log.Println("[DbHelper] Trying to get the schema version of the db")
-	const schemaVersionQuery = "select version from schema"
-
-	var version uint
-	if err := db.QueryRow(schemaVersionQuery).Scan(&version); err != nil {
-		log.Fatalf("[DbHelper] Error while query schema version table. Error: %s\nQuery: %s\n", err, schemaVersionQuery)
+func (h *DbHelper) GetRunningMachines() ([]DbMachine, error) {
+	const maschinesQuery = "SELECT id, name, label, state state, version, createdAt, modifiedAt FROM machines;"
+	db, err := sql.Open("sqlite3", h.Path)
+	if err != nil {
+		log.Printf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
+		return nil, err
 	}
+	defer db.Close()
 
-	return version
-}
-
-func (h *DbHelper) GetRunningMachines() error {
-	const maschinesQuery = "select label from machines"
-
-	rows, err := h.Database.Query(maschinesQuery)
+	rows, err := db.Query(maschinesQuery)
 	if err != nil {
 		log.Printf("[DbHelper] Error while querying the maschines database. Error: %s\n", err)
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 
+	machines := make([]DbMachine, 0)
 	for rows.Next() {
+		var id string
+		var name string
 		var label string
-		if err := rows.Scan(&label); err != nil {
+		var state string
+		var version uint
+		var createdAt string
+		var modifiedAt string
+
+		if err := rows.Scan(&id, &name, &label, &state, &version, &createdAt, &modifiedAt); err != nil {
 			log.Printf("[DbHelper] Error while retriving label. Error: %s\n", err)
 		}
 
-		log.Printf("[DbHelper] Found a label: %s\n", label)
+		machines = appendMachine(machines, DbMachine{id, name, label, state, version, createdAt, modifiedAt})
 	}
+
+	return machines, nil
+}
+
+func appendMachine(machines []DbMachine, data ...DbMachine) []DbMachine {
+	currLen := len(machines)
+	newLen := currLen + len(data)
+
+	if newLen > cap(machines) {
+		newMachines := make([]DbMachine, (newLen+1)*2)
+		copy(newMachines, machines)
+		machines = newMachines
+	}
+	machines = machines[0:newLen]
+	copy(machines[currLen:newLen], data)
+
+	return machines
+}
+
+func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
+	var machineInsertString = "INSERT INTO machines (id, name, label, state, version, createdAt, modifiedAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
+
+	db, err := sql.Open("sqlite3", h.Path)
+	if err != nil {
+		log.Fatalf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
+		return err
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[DbHelper] Error while starting transaction for inserting a new machine. Error: %s\n", err)
+		return err
+	}
+
+	stmt, err := tx.Prepare(machineInsertString)
+	if err != nil {
+		log.Printf("[DbHelper] Error while preparing insert statement %s. Error: %s\n", machineInsertString, err)
+	}
+	defer stmt.Close()
+
+	currTime := time.Now().Format(time.RFC3339)
+	for _, machine := range m {
+		_, err := stmt.Exec(machine.Id, machine.Name, machine.Label, machine.State, machine.Version, currTime, currTime)
+		if err != nil {
+			log.Printf("[DbHelper] Error while executing insertion. Error: %s\n", err)
+		}
+	}
+
+	tx.Commit()
+
+	return nil
+}
+
+func (h *DbHelper) UpdateMachine(id string, data *DbMachine) error {
+	const machineUpdate = "UPDATE OR FAIL machines SET id = ?, name = ?, label = ?, state = ?, version = ?, createdAt = ?, modifiedAt = ? WHERE id = ?;"
+
+	db, err := sql.Open("sqlite3", h.Path)
+	if err != nil {
+		log.Fatalf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
+		return err
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[DbHelper] Error while starting transaction for updating %s. Error: %s\n", id, err)
+		return err
+	}
+
+	stmt, err := tx.Prepare(machineUpdate)
+	if err != nil {
+		log.Printf("[DbHelper] Error while preparing update statement for. Error: %s\n", id, err)
+		return err
+	}
+	defer stmt.Close()
+
+	currTime := time.Now().Format(time.RFC3339)
+	if _, err := stmt.Exec(data.Id, data.Name, data.Label, data.State, data.Version, data.CreatedAt, currTime, id); err != nil {
+		log.Printf("[DbHelper] Error while executing update statement for %s. Error: %s\nData: %#v\n", id, err, data)
+		return err
+	}
+
+	tx.Commit()
+
+	return nil
+}
+
+func (h *DbHelper) DeleteMachine(id string) error {
+	const deleteQuery = "DELETE FROM machines WHERE id = ?;"
+
+	db, err := sql.Open("sqlite3", h.Path)
+	if err != nil {
+		log.Fatalf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
+		return err
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[DbHelper] Error while starting transaction for deleting %s. Error: %s\n", id, err)
+		return err
+	}
+
+	stmt, err := tx.Prepare(deleteQuery)
+	if err != nil {
+		log.Printf("[DbHelper] Error while preparing deletion for %s statement. Error: %s\n", id, err)
+		return err
+	}
+	defer stmt.Close()
+
+	if _, err := stmt.Exec(id); err != nil {
+		log.Printf("[DbHelper] Error while executing deletion statement for %s. Error: %s\n", id, err)
+		return err
+	}
+
+	tx.Commit()
+
 	return nil
 }
