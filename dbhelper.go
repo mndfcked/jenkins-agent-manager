@@ -9,16 +9,19 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Slice of database migration patches. Every change on the database schema results in a new patch that's added to the slice.
 var patches = [...]string{"CREATE TABLE machines (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, label TEXT NOT NULL, state TEXT NOT NULL, version INTEGER NOT NULL, createdAt TEXT NOT NULL, modifiedAt TEXT);"}
 
+// DbHelper struct contains the DB file path, version number and a reference to the sql.DB struct
 type DbHelper struct {
 	Path    string
 	Version uint
 	Db      *sql.DB
 }
 
+// DbMachine is a struct that the result ob a database query encapsulates
 type DbMachine struct {
-	Id         string
+	ID         string
 	Name       string
 	Label      string
 	State      string
@@ -27,6 +30,8 @@ type DbMachine struct {
 	ModifiedAt string
 }
 
+// NewDbHelper creates a new instance ob the DbHelper struct. It opens a new sql.Db instance and stores it in the DbHelper struct.
+// If a new version is requested the database will be updated to this version
 func NewDbHelper(path string, version uint) (*DbHelper, error) {
 
 	if version > uint(len(patches)) {
@@ -103,6 +108,7 @@ func updateSchema(db *sql.DB, oldVersion uint, newVersion uint) error {
 	return nil
 }
 
+// GetMachines querys the database for alle machines stored in it. After a successfully executed query a slice of DbMachine structs will be returned.
 func (h *DbHelper) GetMachines() ([]DbMachine, error) {
 	const selectQuery = "SELECT id, name, label, state state, version, createdAt, modifiedAt FROM machines;"
 
@@ -113,7 +119,7 @@ func (h *DbHelper) GetMachines() ([]DbMachine, error) {
 	}
 	defer rows.Close()
 
-	machines := make([]DbMachine, 0)
+	var machines []DbMachine
 	for rows.Next() {
 		var id string
 		var name string
@@ -148,6 +154,7 @@ func appendMachine(machines []DbMachine, data ...DbMachine) []DbMachine {
 	return machines
 }
 
+// InsertNewMachine takes a slice with DbMachine structs as parameter and stores them in the underlying database.
 func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
 	const insertQuery = "INSERT INTO machines (id, name, label, state, version, createdAt, modifiedAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
 
@@ -165,7 +172,7 @@ func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
 
 	currTime := time.Now().Format(time.RFC3339)
 	for _, machine := range m {
-		_, err := stmt.Exec(machine.Id, machine.Name, machine.Label, machine.State, machine.Version, currTime, currTime)
+		_, err := stmt.Exec(machine.ID, machine.Name, machine.Label, machine.State, machine.Version, currTime, currTime)
 		if err != nil {
 			log.Printf("[DbHelper] Error while executing insertion. Error: %s\n", err)
 		}
@@ -176,6 +183,7 @@ func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
 	return nil
 }
 
+// UpdateMachine updates the database entry for the machine with the id that is passed to the function. The informations are taken from the reference to the DbMachine struct from the second parameter
 func (h *DbHelper) UpdateMachine(id string, data *DbMachine) error {
 	const updateQuery = "UPDATE OR FAIL machines SET id = ?, name = ?, label = ?, state = ?, version = ?, createdAt = ?, modifiedAt = ? WHERE id = ?;"
 
@@ -193,7 +201,7 @@ func (h *DbHelper) UpdateMachine(id string, data *DbMachine) error {
 	defer stmt.Close()
 
 	currTime := time.Now().Format(time.RFC3339)
-	if _, err := stmt.Exec(data.Id, data.Name, data.Label, data.State, data.Version, data.CreatedAt, currTime, id); err != nil {
+	if _, err := stmt.Exec(data.ID, data.Name, data.Label, data.State, data.Version, data.CreatedAt, currTime, id); err != nil {
 		log.Printf("[DbHelper] Error while executing update statement for %s. Error: %s\nData: %#v\n", id, err, data)
 		return err
 	}
@@ -203,6 +211,7 @@ func (h *DbHelper) UpdateMachine(id string, data *DbMachine) error {
 	return nil
 }
 
+// DeleteMachine deletes the machine identified by the id that is passed as the paramater.
 func (h *DbHelper) DeleteMachine(id string) error {
 	const deleteQuery = "DELETE FROM machines WHERE id = ?;"
 
@@ -229,31 +238,18 @@ func (h *DbHelper) DeleteMachine(id string) error {
 	return nil
 }
 
-func (h *DbHelper) GetMachineWithId(id string) (*DbMachine, error) {
+// GetMachineWithID querys the database for the machine identified by the passed id parameter and returns a reference to a DbMachine struct containing the information.
+func (h *DbHelper) GetMachineWithID(id string) (*DbMachine, error) {
 	const selectQuery = "SELECT id, name, label, state, version, createdAt, modifiedAt FROM machines WHERE id = ?"
-	/*
-		tx, err := h.Db.Begin()
-		if err != nil {
-			log.Printf("[DbHelper] Error while starting transaction for selection of machine with id %s. Error: %s\n", id, err)
-			return nil, err
-		}
 
-		stmt, err := tx.Prepare(selectQuery)
-		if err != nil {
-			log.Printf("[DbHelper] Error while preparing statement for selection of machine with id %s. Error: %s\n", id, err)
-			return nil, err
-		}
-	*/
 	row := h.Db.QueryRow(selectQuery, id)
-
-	//	tx.Commit()
 
 	if row == nil {
 		log.Printf("[DbHelper] Error, machine with id %s not found.\n", id)
 		return nil, fmt.Errorf("Machine with id %s not found.", id)
 	}
 
-	var machineId string
+	var machineID string
 	var name string
 	var label string
 	var state string
@@ -261,10 +257,10 @@ func (h *DbHelper) GetMachineWithId(id string) (*DbMachine, error) {
 	var createdAt string
 	var modifiedAt string
 
-	if err := row.Scan(&machineId, &name, &label, &state, &version, &createdAt, &modifiedAt); err != nil {
+	if err := row.Scan(&machineID, &name, &label, &state, &version, &createdAt, &modifiedAt); err != nil {
 		log.Printf("[DbHelper] Error while querying for machine with id %s. Error: %s\nQuery: %s\n", id, err, selectQuery)
 		return nil, err
 	}
 
-	return &DbMachine{machineId, name, label, state, version, createdAt, modifiedAt}, nil
+	return &DbMachine{machineID, name, label, state, version, createdAt, modifiedAt}, nil
 }
