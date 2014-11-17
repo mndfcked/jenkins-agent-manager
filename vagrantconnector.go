@@ -1,20 +1,18 @@
-/*
- *
- * Copyright [2014] [Jörn Domnik]
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
+//
+//Copyright [2014] [Jörn Domnik]
+//
+//Licensed under the Apache License, Version 2.0 (the "License");
+//you may not use this file except in compliance with the License.
+//You may obtain a copy of the License at
+//
+//http://www.apache.org/licenses/LICENSE-2.0
+//
+//Unless required by applicable law or agreed to in writing, software
+//distributed under the License is distributed on an "AS IS" BASIS,
+//WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//See the License for the specific language governing permissions and
+//limitations under the License.
+//
 package main
 
 import (
@@ -37,12 +35,14 @@ func (e *BoxNotFoundError) Error() string {
 	return fmt.Sprintf("No Box for label %s configured", e.Label)
 }
 
+// VagrantConnector struct holds references to vagrants machine index, vagrants boxs index and the configuration module
 type VagrantConnector struct {
 	Index  *govagrant.VagrantMachineIndex
 	Boxes  *[]govagrant.VagrantBox
 	Config *Configuration
 }
 
+// NewVagrantConnector loads the vagrant machine index, vagrant boxes index and creates a new VagrantConnector struct which holds references to these two and the configuration module
 func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	// Parse the vagrant machines index and save them
 	log.Println("[VagrantConnector] Loading machine indes...")
@@ -74,6 +74,7 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	return &VagrantConnector{vIndex, vBoxes, conf}, nil
 }
 
+// GetBoxNameFor takes a label as paramter and searches the configuration for a suitable box with the label and returns the name of this box.
 func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	boxes := vc.Config.Boxes
 
@@ -88,6 +89,7 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	return "", &BoxNotFoundError{label}
 }
 
+// StartMachineFor takes a label and a workingPath as parameters and tries to start a new machine for that label inside the workingPath directory. If the launch was successful, the ID of the newly created machine will be returned.
 func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) (string, error) {
 	log.Printf("[VagrantConnector] Trying to start a vagrant machine for the label %s\n", label)
 	boxName, err := vc.GetBoxNameFor(label)
@@ -116,6 +118,7 @@ func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) (s
 	return filepath.Base(workingPath), nil
 }
 
+// GetBoxMemoryFor takes a label as parameter, searches the configuration for a suitable box and returns the system memory configured for this box.
 func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 	for _, box := range vc.Config.Boxes {
 		for _, l := range box.Labels {
@@ -128,7 +131,10 @@ func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 	return -1, &BoxNotFoundError{label}
 }
 
+// DestroyMachineFor takes a working directory path as parameter, tries to destroy the box and returns the state the machine has after the destory command.
 func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error) {
+	//TODO: Don't destroy. Instead=> Snapshot restoring
+	//TODO: Return the correct, non hardcoded, state
 	log.Printf("[VagrantConnector] Received request to destroy the machine in path %s.\n", workingDir)
 
 	vagrantfilePath := filepath.Join(workingDir, "Vagrantfile")
@@ -152,6 +158,8 @@ func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error)
 	return state, nil
 }
 
+// GetRunningMachineCount traverses the configured workingpath base dir and calls vagrant status for every vagrant file it finds.
+// Every "running" vagrant machine will be counted and the total amount of "running" machines will be returned.
 func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
 	path := vc.Config.WorkingDirPath
 	count := 0
