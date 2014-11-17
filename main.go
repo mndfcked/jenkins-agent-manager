@@ -28,8 +28,10 @@ import (
  * Definition of configuration constants
  */
 const (
-	defaultConfPath = "config.json"
-	usageConfPath   = "Path to the configuration file. Has to be valid JSON format"
+	defaultConfPath  = "./config.json"
+	usageConfPath    = "Path to the configuration file. Has to be valid JSON format"
+	defaultDbPath    = "./agents.db"
+	defaultDbVersion = 1
 )
 
 /*
@@ -46,6 +48,7 @@ func init() {
 	 * TODO: Verify that jenkins is installed and running
 	 */
 	flag.StringVar(&confPath, "configurationPath", defaultConfPath, usageConfPath)
+
 }
 
 /*
@@ -94,7 +97,12 @@ func main() {
 	fmt.Println("=======================================================\n")
 
 	fmt.Println("==== Creating controller instance ====")
-	contr, err := NewController(vc, jc, conf)
+	dbhelper, err := NewDbHelper(defaultDbPath, defaultDbVersion)
+	if err != nil {
+		log.Panicf("[Main] Error while creating new DbHelper instance. Error: %s\n", err)
+	}
+
+	contr, err := NewController(vc, jc, conf, dbhelper)
 	if err != nil {
 		log.Panicf("[MAIN]: ERROR: Couldn't create Controller instance.\nError: %s\n", err.Error())
 	}
@@ -109,9 +117,12 @@ func main() {
 }
 
 func createListener(conf *Configuration, c *Controller) error {
-	l, err := NewListener(conf.ListenerPort, c)
-	if err != nil {
+	l := NewListener(conf.ListenerPort, c)
+
+	if err := l.CreateSocket(); err != nil {
+		log.Printf("[Main] Error while creating listener. Error: %s\n", err)
 		return err
 	}
-	return l.CreateSocket(conf.ListenerPort)
+
+	return nil
 }
