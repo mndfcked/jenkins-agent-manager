@@ -18,16 +18,17 @@
 package main
 
 //TODO: Implement new design
-// 	- save started VMs in a file or sqlitedb
-//	- start every vm in a new folder with a sha256 generated name (=> vagrantconnector)
 //	- check before every start of a new machine, wheter it there is a free, already created machine available
-//	- return the sha256 folder name as id (=> listener)
-//	- requere an id for destroying a machine (=>listener)
 //	- don't destroy a machine, snapshot and restore instead (=> vagrantconnector, only when already created)
 
 import (
+	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"log"
+	"path/filepath"
+	"time"
 
 	"github.com/cloudfoundry/gosigar"
 )
@@ -57,37 +58,90 @@ type Controller struct {
 	VagrantConnector *VagrantConnector
 	JenkinsConnector *JenkinsConnector
 	Config           *Configuration
+	Database         *DbHelper
 }
 
 // NewController instatiates a new Controller and returns it
-func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configuration) (*Controller, error) {
-	return &Controller{vc, jc, conf}, nil
+func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configuration, dbhelper *DbHelper) (*Controller, error) {
+	return &Controller{vc, jc, conf, dbhelper}, nil
 }
 
-func (c *Controller) StartVms(label string) error {
+func (c *Controller) StartVms(label string) (string, error) {
 	log.Printf("[Controller] Received request to start a box for label %s.\n", label)
 
 	boxMemory, err := c.VagrantConnector.GetBoxMemoryFor(label)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	if err := c.checkMaxVMCount(); err != nil {
 		log.Printf("[Controller] Error while checking for max. concurrently allowed machines. Error: %s\n", err)
-		return err
+		return "", err
 	}
 
 	if err := checkFreeSysMem(uint64(boxMemory)); err != nil {
 		log.Printf("[Controller] Error while checking free system memory for box %s. Error: %s\n", label, err)
-		return err
+		return "", err
 	}
 
-	if err := c.VagrantConnector.StartMachineFor(label, c.Config.WorkingDirPath); err != nil {
+	workingPath, err := c.getWorkingPathFor(label, c.Config.WorkingDirPath)
+	if err != nil {
+		log.Printf("[Controller] Error while checking for free machine for label %s. Error: %s\n", label, err)
+		return "", err
+	}
+
+	id, err := c.VagrantConnector.StartMachineFor(label, workingPath)
+	if err != nil {
 		log.Printf("[Controller] Error while spining up the box for label %s. Error: %s\n", label, err)
-		return err
+		return "", err
 	}
 
-	return nil
+	if err := c.Database.UpdateMachine(id, &DbMachine{id, label, label, "running", 1, "", ""}); err != nil {
+		log.Printf("[Controller] Error while storing new machine status für id %s. Error: %s", id, err)
+		return "", err
+	}
+
+	return id, nil
+}
+
+func (c *Controller) getWorkingPathFor(label string, baseDir string) (string, error) {
+	machines, err := c.Database.GetMachines()
+	if err != nil {
+		log.Printf("[Controller] Error while retriving running machines status. Error: %s\n", err)
+		return "", err
+	}
+
+	for _, m := range machines {
+		if m.Label == label && m.State != "running" {
+			return filepath.Join(baseDir, m.ID), nil
+		}
+	}
+
+	newId := generateFolderName(label)
+	currTime := time.Now().Format(time.RFC3339)
+	newMachine := DbMachine{newId, label, label, "poweroff", 1, currTime, currTime}
+	machinesArr := make([]DbMachine, 1)
+	machinesArr[0] = newMachine
+
+	if err := c.Database.InsertNewMachine(machinesArr); err != nil {
+		log.Printf("[Controller] Error while saving machine with id %s in database. Error: %s\n", newId, err)
+		return "", err
+	}
+
+	return filepath.Join(baseDir, newId), nil
+}
+
+func generateFolderName(label string) string {
+	currtime := time.Now().Format(time.RFC3339Nano)
+	var buffer bytes.Buffer
+	buffer.WriteString(label)
+	buffer.WriteString(currtime)
+
+	hash := sha1.New()
+	hash.Write(buffer.Bytes())
+	sum := hash.Sum(nil)
+
+	return hex.EncodeToString(sum)
 }
 
 func checkFreeSysMem(boxMemory uint64) error {
@@ -123,10 +177,29 @@ func getFreeMemory() uint64 {
 	return mem.ActualFree
 }
 
-func (c *Controller) DestroyVms(label string) error {
-	if err := c.VagrantConnector.DestroyMachineFor(label, c.Config.WorkingDirPath); err != nil {
-		log.Printf("[Controller]: Error while destroying the boxes for %s\n", label)
+func (c *Controller) DestroyVms(id string) error {
+	m, err := c.Database.GetMachineWithID(id)
+	if err != nil {
+		log.Printf("[Controller] Error while loading machine with id %s form database. Error: %s\n", err)
 		return err
 	}
+
+	if m.State != "running" {
+		return fmt.Errorf("Machine with id %s not running.", id)
+	}
+
+	workingPath := filepath.Join(c.Config.WorkingDirPath, id)
+
+	state, err := c.VagrantConnector.DestroyMachineFor(workingPath)
+	if err != nil {
+		log.Printf("[Controller] Error while destroying the machine in path %s. Error: %s\n", workingPath, err)
+		return err
+	}
+	m.State = state
+	if err := c.Database.UpdateMachine(id, m); err != nil {
+		log.Printf("[Controller] Error while updating state of machine with id %s in database. Error: %s\n", id, err)
+		return err
+	}
+
 	return nil
 }
