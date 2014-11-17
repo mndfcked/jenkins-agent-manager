@@ -1,20 +1,18 @@
-/*
- *
- * Copyright [2014] [Jörn Domnik]
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
+//
+//Copyright [2014] [Jörn Domnik]
+//
+//Licensed under the Apache License, Version 2.0 (the "License");
+//you may not use this file except in compliance with the License.
+//You may obtain a copy of the License at
+//
+//http://www.apache.org/licenses/LICENSE-2.0
+//
+//Unless required by applicable law or agreed to in writing, software
+//distributed under the License is distributed on an "AS IS" BASIS,
+//WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//See the License for the specific language governing permissions and
+//limitations under the License.
+//
 package main
 
 //TODO: Implement new design
@@ -66,6 +64,7 @@ func NewController(vc *VagrantConnector, jc *JenkinsConnector, conf *Configurati
 	return &Controller{vc, jc, conf, dbhelper}, nil
 }
 
+// StartVms takes a box label as parameter, creates a unique id and starts the machine inside a unique folder. After a successufl start, the new machine will be stored in the database and the id returned to the listener
 func (c *Controller) StartVms(label string) (string, error) {
 	log.Printf("[Controller] Received request to start a box for label %s.\n", label)
 
@@ -117,18 +116,18 @@ func (c *Controller) getWorkingPathFor(label string, baseDir string) (string, er
 		}
 	}
 
-	newId := generateFolderName(label)
+	newID := generateFolderName(label)
 	currTime := time.Now().Format(time.RFC3339)
-	newMachine := DbMachine{newId, label, label, "poweroff", 1, currTime, currTime}
+	newMachine := DbMachine{newID, label, label, "poweroff", 1, currTime, currTime}
 	machinesArr := make([]DbMachine, 1)
 	machinesArr[0] = newMachine
 
 	if err := c.Database.InsertNewMachine(machinesArr); err != nil {
-		log.Printf("[Controller] Error while saving machine with id %s in database. Error: %s\n", newId, err)
+		log.Printf("[Controller] Error while saving machine with id %s in database. Error: %s\n", newID, err)
 		return "", err
 	}
 
-	return filepath.Join(baseDir, newId), nil
+	return filepath.Join(baseDir, newID), nil
 }
 
 func generateFolderName(label string) string {
@@ -148,25 +147,23 @@ func checkFreeSysMem(boxMemory uint64) error {
 	freeMemory := getFreeMemory()
 	if boxMemory >= freeMemory {
 		return &NoFreeMemoryError{freeMemory, boxMemory}
-	} else {
-		return nil
 	}
+	return nil
 }
 
 func (c *Controller) checkMaxVMCount() error {
-	maxVmCount := c.Config.MaxVms
+	maxVMCount := c.Config.MaxVms
 	vmCount, err := c.VagrantConnector.GetRunningMachineCount()
 	if err != nil {
 		log.Printf("[Controller] Error while getting number of running machines. Error: %s\n", err)
 		return err
 	}
 
-	log.Printf("[Controller] %d boxes are running, allowed to run %d boxes", vmCount, maxVmCount)
-	if vmCount+1 > maxVmCount {
-		return &TooManyVmsError{vmCount + 1, maxVmCount}
-	} else {
-		return nil
+	log.Printf("[Controller] %d boxes are running, allowed to run %d boxes", vmCount, maxVMCount)
+	if vmCount+1 > maxVMCount {
+		return &TooManyVmsError{vmCount + 1, maxVMCount}
 	}
+	return nil
 }
 
 func getFreeMemory() uint64 {
@@ -177,6 +174,7 @@ func getFreeMemory() uint64 {
 	return mem.ActualFree
 }
 
+// DestroyVms takes an id for a machine as parameter. It queries the database for the machine identifed by the passed id. If a machine was found the workingpath directory will be used to destroy the machine inside that directory.
 func (c *Controller) DestroyVms(id string) error {
 	m, err := c.Database.GetMachineWithID(id)
 	if err != nil {
