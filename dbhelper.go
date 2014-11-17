@@ -103,7 +103,7 @@ func updateSchema(db *sql.DB, oldVersion uint, newVersion uint) error {
 	return nil
 }
 
-func (h *DbHelper) GetRunningMachines() ([]DbMachine, error) {
+func (h *DbHelper) GetMachines() ([]DbMachine, error) {
 	const selectQuery = "SELECT id, name, label, state state, version, createdAt, modifiedAt FROM machines;"
 
 	rows, err := h.Db.Query(selectQuery)
@@ -227,4 +227,44 @@ func (h *DbHelper) DeleteMachine(id string) error {
 	tx.Commit()
 
 	return nil
+}
+
+func (h *DbHelper) GetMachineWithId(id string) (*DbMachine, error) {
+	const selectQuery = "SELECT id, name, label, state, version, createdAt, modifiedAt FROM machines WHERE id = ?"
+	/*
+		tx, err := h.Db.Begin()
+		if err != nil {
+			log.Printf("[DbHelper] Error while starting transaction for selection of machine with id %s. Error: %s\n", id, err)
+			return nil, err
+		}
+
+		stmt, err := tx.Prepare(selectQuery)
+		if err != nil {
+			log.Printf("[DbHelper] Error while preparing statement for selection of machine with id %s. Error: %s\n", id, err)
+			return nil, err
+		}
+	*/
+	row := h.Db.QueryRow(selectQuery, id)
+
+	//	tx.Commit()
+
+	if row == nil {
+		log.Printf("[DbHelper] Error, machine with id %s not found.\n", id)
+		return nil, fmt.Errorf("Machine with id %s not found.", id)
+	}
+
+	var machineId string
+	var name string
+	var label string
+	var state string
+	var version uint
+	var createdAt string
+	var modifiedAt string
+
+	if err := row.Scan(&machineId, &name, &label, &state, &version, &createdAt, &modifiedAt); err != nil {
+		log.Printf("[DbHelper] Error while querying for machine with id %s. Error: %s\nQuery: %s\n", id, err, selectQuery)
+		return nil, err
+	}
+
+	return &DbMachine{machineId, name, label, state, version, createdAt, modifiedAt}, nil
 }
