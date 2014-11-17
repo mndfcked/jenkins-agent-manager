@@ -88,23 +88,23 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	return "", &BoxNotFoundError{label}
 }
 
-func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) error {
+func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) (string, error) {
 	log.Printf("[VagrantConnector] Trying to start a vagrant machine for the label %s\n", label)
 	boxName, err := vc.GetBoxNameFor(label)
 
 	if err != nil {
 		log.Printf("[VagrantConnector]: ERROR while retriving box name for label %s. Error: %s\n", label, err)
-		return err
+		return "", err
 	}
 
-	vagrantfilePath := filepath.Join(workingPath, boxName, "Vagrantfile")
+	vagrantfilePath := filepath.Join(workingPath, "Vagrantfile")
 	vagrantfileDirPath := filepath.Dir(vagrantfilePath)
 
 	if !govagrant.VagrantfileExists(vagrantfilePath) {
 		log.Printf("[VagrantConnector]: Vagrantfile not found, creating new in path %s\n", vagrantfilePath)
 		if err := os.MkdirAll(vagrantfileDirPath, 0755); err != nil {
 			log.Printf("[VagrantConnector]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s\n", label, workingPath, err.Error())
-			return err
+			return "", err
 		}
 
 		govagrant.Init(vagrantfilePath, boxName)
@@ -113,7 +113,7 @@ func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) er
 
 	govagrant.Up(vagrantfilePath)
 
-	return nil
+	return filepath.Base(workingPath), nil
 }
 
 func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
@@ -128,30 +128,28 @@ func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 	return -1, &BoxNotFoundError{label}
 }
 
-func (vc *VagrantConnector) DestroyMachineFor(label string, workingDir string) error {
-	log.Printf("[VagrantConnector] Received request to destroy a box with the label %s.\n", label)
+func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error) {
+	log.Printf("[VagrantConnector] Received request to destroy the machine in path %s.\n", workingDir)
 
-	box, err := vc.GetBoxNameFor(label)
-	if err != nil {
-		log.Printf("[VagrantConnector] Cannot destroy a machine for label %s. No box found for that label. Error: %s.\n", label, err.Error())
-		return err
-	}
-
-	vagrantfilePath := filepath.Join(workingDir, box, "Vagrantfile")
+	vagrantfilePath := filepath.Join(workingDir, "Vagrantfile")
 	machines, err := govagrant.Status(vagrantfilePath)
 	if err != nil {
 		log.Printf("[VagrantConnector] Error while getting the vagrant status for %s. Error: %s.\n", vagrantfilePath, err.Error())
-		return err
+		return "", err
 	}
 
 	for _, m := range *machines {
 		if m.State == "running" {
 			log.Printf("[VagrantConnector] Found machine %s with running state. Trying to destroy it\n", m.Name)
-			return govagrant.Destroy(vagrantfilePath)
+
+			if err := govagrant.Destroy(vagrantfilePath); err != nil {
+				log.Printf("[VagrantConnector] Error while destroying the machine in path %s. Error: %s\n", workingDir, err)
+				return "", err
+			}
 		}
 	}
-
-	return nil
+	state := "destroyed"
+	return state, nil
 }
 
 func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
@@ -164,7 +162,7 @@ func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
 
 	for _, dir := range dirs {
 		if dir.IsDir() {
-			log.Printf("[VagrantConnector] Checking %s for Vagrantfile\n", path)
+			log.Printf("[VagrantConnector] Checking %s for Vagrantfile\n", filepath.Join(path, dir.Name()))
 			machines, err := govagrant.Status(filepath.Join(path, dir.Name(), "Vagrantfile"))
 
 			if err != nil && err != govagrant.ErrVagrantfileNotFound {
