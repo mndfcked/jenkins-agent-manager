@@ -14,6 +14,7 @@ var patches = [...]string{"CREATE TABLE machines (id TEXT NOT NULL PRIMARY KEY, 
 type DbHelper struct {
 	Path    string
 	Version uint
+	Db      *sql.DB
 }
 
 type DbMachine struct {
@@ -37,7 +38,6 @@ func NewDbHelper(path string, version uint) (*DbHelper, error) {
 		log.Printf("[DbHelper] Error while opening database %s. Error: %s\n", path, err)
 		return nil, err
 	}
-	defer db.Close()
 
 	oldVersion, err := getVersion(db)
 	if oldVersion < version {
@@ -48,7 +48,7 @@ func NewDbHelper(path string, version uint) (*DbHelper, error) {
 
 	}
 
-	return &DbHelper{path, version}, nil
+	return &DbHelper{path, version, db}, nil
 }
 
 func setVersion(db *sql.DB, version uint) {
@@ -104,15 +104,9 @@ func updateSchema(db *sql.DB, oldVersion uint, newVersion uint) error {
 }
 
 func (h *DbHelper) GetRunningMachines() ([]DbMachine, error) {
-	const maschinesQuery = "SELECT id, name, label, state state, version, createdAt, modifiedAt FROM machines;"
-	db, err := sql.Open("sqlite3", h.Path)
-	if err != nil {
-		log.Printf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
-		return nil, err
-	}
-	defer db.Close()
+	const selectQuery = "SELECT id, name, label, state state, version, createdAt, modifiedAt FROM machines;"
 
-	rows, err := db.Query(maschinesQuery)
+	rows, err := h.Db.Query(selectQuery)
 	if err != nil {
 		log.Printf("[DbHelper] Error while querying the maschines database. Error: %s\n", err)
 		return nil, err
@@ -155,24 +149,17 @@ func appendMachine(machines []DbMachine, data ...DbMachine) []DbMachine {
 }
 
 func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
-	var machineInsertString = "INSERT INTO machines (id, name, label, state, version, createdAt, modifiedAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
+	const insertQuery = "INSERT INTO machines (id, name, label, state, version, createdAt, modifiedAt) VALUES (?, ?, ?, ?, ?, ?, ?)"
 
-	db, err := sql.Open("sqlite3", h.Path)
-	if err != nil {
-		log.Fatalf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
-		return err
-	}
-	defer db.Close()
-
-	tx, err := db.Begin()
+	tx, err := h.Db.Begin()
 	if err != nil {
 		log.Printf("[DbHelper] Error while starting transaction for inserting a new machine. Error: %s\n", err)
 		return err
 	}
 
-	stmt, err := tx.Prepare(machineInsertString)
+	stmt, err := tx.Prepare(insertQuery)
 	if err != nil {
-		log.Printf("[DbHelper] Error while preparing insert statement %s. Error: %s\n", machineInsertString, err)
+		log.Printf("[DbHelper] Error while preparing insert statement %s. Error: %s\n", insertQuery, err)
 	}
 	defer stmt.Close()
 
@@ -190,22 +177,15 @@ func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
 }
 
 func (h *DbHelper) UpdateMachine(id string, data *DbMachine) error {
-	const machineUpdate = "UPDATE OR FAIL machines SET id = ?, name = ?, label = ?, state = ?, version = ?, createdAt = ?, modifiedAt = ? WHERE id = ?;"
+	const updateQuery = "UPDATE OR FAIL machines SET id = ?, name = ?, label = ?, state = ?, version = ?, createdAt = ?, modifiedAt = ? WHERE id = ?;"
 
-	db, err := sql.Open("sqlite3", h.Path)
-	if err != nil {
-		log.Fatalf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
-		return err
-	}
-	defer db.Close()
-
-	tx, err := db.Begin()
+	tx, err := h.Db.Begin()
 	if err != nil {
 		log.Printf("[DbHelper] Error while starting transaction for updating %s. Error: %s\n", id, err)
 		return err
 	}
 
-	stmt, err := tx.Prepare(machineUpdate)
+	stmt, err := tx.Prepare(updateQuery)
 	if err != nil {
 		log.Printf("[DbHelper] Error while preparing update statement for. Error: %s\n", id, err)
 		return err
@@ -226,14 +206,7 @@ func (h *DbHelper) UpdateMachine(id string, data *DbMachine) error {
 func (h *DbHelper) DeleteMachine(id string) error {
 	const deleteQuery = "DELETE FROM machines WHERE id = ?;"
 
-	db, err := sql.Open("sqlite3", h.Path)
-	if err != nil {
-		log.Fatalf("[DbHelper] Error while opening database %s. Error: %s\n", h.Path, err)
-		return err
-	}
-	defer db.Close()
-
-	tx, err := db.Begin()
+	tx, err := h.Db.Begin()
 	if err != nil {
 		log.Printf("[DbHelper] Error while starting transaction for deleting %s. Error: %s\n", id, err)
 		return err
