@@ -57,5 +57,5 @@ func mockVagrantConnector(conf *Configuration) *VagrantConnector {
 	var vagrantBoxes []govagrant.VagrantBox
 	vagrantBoxes = make([]govagrant.VagrantBox, 1, 1)
 	vagrantBoxes[0] = govagrant.VagrantBox{"Test-Box", "Test-Provider", "1.0", 1234}
-	return &VagrantConnector{vagrantIndex, &vagrantBoxes, conf}
+	return &VagrantConnector{vagrantIndex, vagrantBoxes, conf}
 }

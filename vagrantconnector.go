@@ -38,7 +38,7 @@ func (e *BoxNotFoundError) Error() string {
 // VagrantConnector struct holds references to vagrants machine index, vagrants boxs index and the configuration module
 type VagrantConnector struct {
 	Index  *govagrant.VagrantMachineIndex
-	Boxes  *[]govagrant.VagrantBox
+	Boxes  []govagrant.VagrantBox
 	Config *Configuration
 }
 
@@ -66,7 +66,7 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	}
 
 	log.Println("[VagrantConnector] Successfully oaded the following boxes:")
-	for _, box := range *vBoxes {
+	for _, box := range vBoxes {
 		box.Print()
 	}
 
@@ -89,9 +89,9 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	return "", &BoxNotFoundError{label}
 }
 
-// StartMachineFor takes a label and a workingPath as parameters and tries to start a new machine for that label inside the workingPath directory. If the launch was successful, the ID of the newly created machine will be returned.
-func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) (string, error) {
-	log.Printf("[VagrantConnector] Trying to start a vagrant machine for the label %s\n", label)
+// CreateMachineFor takes a label and workingPath as parameter, creates a new vagrantfile in it and starts the machine up. Afert a successfuly start, the ID of the new machine is returned.
+func (vc *VagrantConnector) CreateMachineFor(label string, workingPath string) (string, error) {
+	log.Printf("[VagrantConnector] Got request for creating a new vagrant machine for the label %s in the path %s.\n", label, workingPath)
 	boxName, err := vc.GetBoxNameFor(label)
 
 	if err != nil {
@@ -113,9 +113,41 @@ func (vc *VagrantConnector) StartMachineFor(label string, workingPath string) (s
 	}
 	log.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
 
-	govagrant.Up(vagrantfilePath)
+	if err := govagrant.Up(vagrantfilePath); err != nil {
+		log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", vagrantfilePath, err)
+		return "", err
+	}
 
 	return filepath.Base(workingPath), nil
+}
+
+// StartMachineIn takes a workingPath as parameter and tries to start the containing vagrant machine.
+func (vc *VagrantConnector) StartMachineIn(workingPath string) error {
+	vagrantfilePath := filepath.Join(workingPath, "Vagrantfile")
+	log.Printf("[VagrantConnector] Trying to start a vagrant machine in the path %s\n", vagrantfilePath)
+
+	if !govagrant.VagrantfileExists(vagrantfilePath) {
+		log.Printf("[VagrantConnector]: Vagrantfile not found, creating new in path %s\n", vagrantfilePath)
+		return govagrant.ErrVagrantfileNotFound
+	}
+
+	status, err := govagrant.Status(vagrantfilePath)
+	if err != nil {
+		log.Printf("[VagrantConnector] Error while retirivng status for vagrant machine in %s. Error: %s\n", vagrantfilePath, err)
+		return err
+	}
+
+	for _, m := range status {
+		if m.State == "Saved" {
+			if err := govagrant.Up(vagrantfilePath); err != nil {
+				log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", vagrantfilePath, err)
+				return err
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("Couldn't start machine in path %s.", vagrantfilePath)
 }
 
 // GetBoxMemoryFor takes a label as parameter, searches the configuration for a suitable box and returns the system memory configured for this box.
@@ -131,6 +163,22 @@ func (vc *VagrantConnector) GetBoxMemoryFor(label string) (int64, error) {
 	return -1, &BoxNotFoundError{label}
 }
 
+// ResetMachineIn resets the vagrant machine located in the passed working directory to the snapshot passed in the second parameter.
+func (vc *VagrantConnector) ResetMachineIn(workingDir string, snapshotID string) error {
+	log.Printf("[VagrantConnector] Received request to reset the machine in path %s.\n", workingDir)
+
+	vagrantfilePath := filepath.Join(workingDir, "Vagrantfile")
+	if err := govagrant.SnapBack(vagrantfilePath, snapshotID); err != nil {
+		log.Printf("[VagrantConnector] Error while resetting the machine in path %s to snapshot %s. Error: %s\n",
+			workingDir,
+			snapshotID,
+			err)
+		return err
+	}
+
+	return nil
+}
+
 // DestroyMachineFor takes a working directory path as parameter, tries to destroy the box and returns the state the machine has after the destory command.
 func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error) {
 	//TODO: Don't destroy. Instead=> Snapshot restoring
@@ -144,7 +192,7 @@ func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error)
 		return "", err
 	}
 
-	for _, m := range *machines {
+	for _, m := range machines {
 		if m.State == "running" {
 			log.Printf("[VagrantConnector] Found machine %s with running state. Trying to destroy it\n", m.Name)
 
@@ -180,7 +228,7 @@ func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
 				continue
 			}
 
-			for _, m := range *machines {
+			for _, m := range machines {
 				if m.State == "running" {
 					count++
 				}
