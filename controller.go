@@ -51,6 +51,15 @@ func (e *NoFreeMemoryError) Error() string {
 	return fmt.Sprintf("Not enought free systen memory. The System has %d Bytes of free system memory, requested where %d Bytes", e.RequestedMemory, e.FreeMemory)
 }
 
+// A NoFreeMachineError tells the caller that non of the already created machine is free for a new job.
+type NoFreeMachineError struct {
+	Label string
+}
+
+func (e *NoFreeMachineError) Error() string {
+	return fmt.Sprintf("no unused vagrant machine for label %s found", e.Label)
+}
+
 // Controller struct gives other type to hold reference to it
 type Controller struct {
 	VagrantConnector *VagrantConnector
@@ -82,20 +91,25 @@ func (c *Controller) StartVms(label string) (string, error) {
 		log.Printf("[Controller] Error while checking free system memory for box %s. Error: %s\n", label, err)
 		return "", err
 	}
+	//FIXME: Proper check for unused machines, if no unused machines => create one, otherwise start the found unused machine
+	workingPath, err := c.checkUnusedMachineFor(label, c.Config.WorkingDirPath)
 
-	workingPath, err := c.getWorkingPathFor(label, c.Config.WorkingDirPath)
+	id, err := c.VagrantConnector.CreateMachineFor(label, workingPath)
+	if err != nil {
+		log.Printf("[Controller] Error while creating a new vagrant machine for %s label in %s. Error: %s\n", label, workingPath, err)
+		return "", err
+	}
 	if err != nil {
 		log.Printf("[Controller] Error while checking for free machine for label %s. Error: %s\n", label, err)
 		return "", err
 	}
 
-	id, err := c.VagrantConnector.StartMachineFor(label, workingPath)
-	if err != nil {
+	if err := c.VagrantConnector.StartMachineIn(workingPath); err != nil {
 		log.Printf("[Controller] Error while spining up the box for label %s. Error: %s\n", label, err)
 		return "", err
 	}
 
-	if err := c.Database.UpdateMachine(id, &DbMachine{id, label, label, "running", 1, "", ""}); err != nil {
+	if err := c.Database.UpdateMachine(id, &DbMachine{id, label, label, "running", 1, "", "", ""}); err != nil {
 		log.Printf("[Controller] Error while storing new machine status für id %s. Error: %s", id, err)
 		return "", err
 	}
@@ -103,7 +117,7 @@ func (c *Controller) StartVms(label string) (string, error) {
 	return id, nil
 }
 
-func (c *Controller) getWorkingPathFor(label string, baseDir string) (string, error) {
+func (c *Controller) checkUnusedMachineFor(label string, baseDir string) (string, error) {
 	machines, err := c.Database.GetMachines()
 	if err != nil {
 		log.Printf("[Controller] Error while retriving running machines status. Error: %s\n", err)
@@ -111,14 +125,14 @@ func (c *Controller) getWorkingPathFor(label string, baseDir string) (string, er
 	}
 
 	for _, m := range machines {
-		if m.Label == label && m.State != "running" {
+		if m.Label == label && m.State != "unused" {
 			return filepath.Join(baseDir, m.ID), nil
 		}
 	}
 
 	newID := generateFolderName(label)
 	currTime := time.Now().Format(time.RFC3339)
-	newMachine := DbMachine{newID, label, label, "poweroff", 1, currTime, currTime}
+	newMachine := DbMachine{newID, label, label, "not created", 1, currTime, currTime, ""}
 	machinesArr := make([]DbMachine, 1)
 	machinesArr[0] = newMachine
 
