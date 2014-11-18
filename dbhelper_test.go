@@ -26,7 +26,7 @@ func TestDb(t *testing.T) {
 	}
 
 	log.Println("\t=> Requesting empty array of machines from test db")
-	machines, err := helper.GetRunningMachines()
+	machines, err := helper.GetMachines()
 	if err != nil {
 		t.Errorf("\t=> Fail while getting empty running machines array. Error: %s", err)
 	}
@@ -43,12 +43,12 @@ func TestDb(t *testing.T) {
 		hash.Write([]byte(str))
 		sum := hash.Sum(nil)
 		sumStr := hex.EncodeToString(sum)
-		mArr[i] = DbMachine{Id: sumStr, Name: "foo", Label: "baz", State: "bar", Version: uint(1), CreatedAt: "bla", ModifiedAt: "bla"}
+		mArr[i] = DbMachine{ID: sumStr, Name: "foo", Label: "baz", State: "bar", Version: uint(1), CreatedAt: "bla", ModifiedAt: "bla", SnapshotID: "bla"}
 	}
 
 	helper.InsertNewMachine(mArr)
 
-	insertedMachines, err := helper.GetRunningMachines()
+	insertedMachines, err := helper.GetMachines()
 	if err != nil {
 		t.Error("\t=> Fail while getting running machines test data from db")
 	}
@@ -63,12 +63,12 @@ func TestDb(t *testing.T) {
 		m.State = "butzeman"
 		m.Version = 10815
 		m.ModifiedAt = "fooobarrr"
-		if err := helper.UpdateMachine(m.Id, &m); err != nil {
+		if err := helper.UpdateMachine(m.ID, &m); err != nil {
 			t.Errorf("Fail while updating entry %d. Error: %s\n", key, err)
 		}
 	}
 
-	updatedMachines, err := helper.GetRunningMachines()
+	updatedMachines, err := helper.GetMachines()
 	if err != nil {
 		t.Error("\t=> Fail while getting running machines test data from db")
 	}
@@ -78,12 +78,12 @@ func TestDb(t *testing.T) {
 
 	log.Printf("\t=> Deleting test data\n")
 	for key, m := range updatedMachines {
-		if err := helper.DeleteMachine(m.Id); err != nil {
+		if err := helper.DeleteMachine(m.ID); err != nil {
 			t.Errorf("Fail while deleting entry whith id %d. Error: %s\n", key, err)
 		}
 	}
 
-	deletedMachines, err := helper.GetRunningMachines()
+	deletedMachines, err := helper.GetMachines()
 	if err != nil {
 		t.Error("\t=> Fail while getting running machines test data from db")
 	}
