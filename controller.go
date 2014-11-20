@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -52,14 +53,13 @@ func (e *NoFreeMemoryError) Error() string {
 }
 
 // A NoFreeMachineError tells the caller that non of the already created machine is free for a new job.
-type NoFreeMachineError struct {
-	Label string
-}
+var NoFreeMachineError = errors.New("no machines found.")
 
+/*
 func (e *NoFreeMachineError) Error() string {
 	return fmt.Sprintf("no unused vagrant machine for label %s found", e.Label)
 }
-
+*/
 // Controller struct gives other type to hold reference to it
 type Controller struct {
 	VagrantConnector *VagrantConnector
@@ -91,19 +91,25 @@ func (c *Controller) StartVms(label string) (string, error) {
 		log.Printf("[Controller] Error while checking free system memory for box %s. Error: %s\n", label, err)
 		return "", err
 	}
-	//FIXME: Proper check for unused machines, if no unused machines => create one, otherwise start the found unused machine
-	workingPath, err := c.checkUnusedMachineFor(label, c.Config.WorkingDirPath)
 
-	id, err := c.VagrantConnector.CreateMachineFor(label, workingPath)
-	if err != nil {
-		log.Printf("[Controller] Error while creating a new vagrant machine for %s label in %s. Error: %s\n", label, workingPath, err)
-		return "", err
-	}
-	if err != nil {
+	workingPath, err := c.checkUnusedMachineFor(label, c.Config.WorkingDirPath)
+	var id string
+	if err == NoFreeMachineError {
+		log.Println("[Controller] No unused Machine found, trying to create a new one.")
+		id, err = c.VagrantConnector.CreateMachineFor(label, workingPath)
+		if err != nil {
+			log.Printf("[Controller] Error while creating a new vagrant machine for %s label in %s. Error: %s\n", label, workingPath, err)
+			return "", err
+		}
+		workingPath = filepath.Join(c.Config.WorkingDirPath, id)
+		log.Printf("[Controller] New machine successfully created.\n")
+
+	} else if err != nil {
 		log.Printf("[Controller] Error while checking for free machine for label %s. Error: %s\n", label, err)
 		return "", err
 	}
 
+	log.Printf("[Controller] Trying to start new machine with the id %s in path %s.\n", id, workingPath)
 	if err := c.VagrantConnector.StartMachineIn(workingPath); err != nil {
 		log.Printf("[Controller] Error while spining up the box for label %s. Error: %s\n", label, err)
 		return "", err
@@ -126,22 +132,24 @@ func (c *Controller) checkUnusedMachineFor(label string, baseDir string) (string
 
 	for _, m := range machines {
 		if m.Label == label && m.State != "unused" {
+			log.Printf("[Controller]\t=> Found machine %s for the label %s with the state %s!\n", m.ID, label, m.State)
 			return filepath.Join(baseDir, m.ID), nil
 		}
 	}
+	/*
+		newID := generateFolderName(label)
+		currTime := time.Now().Format(time.RFC3339)
+		newMachine := DbMachine{newID, label, label, "not created", 1, currTime, currTime, ""}
+		machinesArr := make([]DbMachine, 1)
+		machinesArr[0] = newMachine
 
-	newID := generateFolderName(label)
-	currTime := time.Now().Format(time.RFC3339)
-	newMachine := DbMachine{newID, label, label, "not created", 1, currTime, currTime, ""}
-	machinesArr := make([]DbMachine, 1)
-	machinesArr[0] = newMachine
-
-	if err := c.Database.InsertNewMachine(machinesArr); err != nil {
-		log.Printf("[Controller] Error while saving machine with id %s in database. Error: %s\n", newID, err)
-		return "", err
-	}
-
-	return filepath.Join(baseDir, newID), nil
+		if err := c.Database.InsertNewMachine(machinesArr); err != nil {
+			log.Printf("[Controller] Error while saving machine with id %s in database. Error: %s\n", newID, err)
+			return "", err
+		}
+	*/
+	log.Printf("[Controller]\t=> Couldn't find a suitable machine for label %s.\n", label)
+	return "", NoFreeMachineError
 }
 
 func generateFolderName(label string) string {
