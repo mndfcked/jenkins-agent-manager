@@ -31,7 +31,7 @@ const (
 	defaultConfPath  = "./config.json"
 	usageConfPath    = "Path to the configuration file. Has to be valid JSON format"
 	defaultDbPath    = "./agents.db"
-	defaultDbVersion = 1
+	defaultDbVersion = 2
 )
 
 /*

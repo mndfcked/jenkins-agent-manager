@@ -130,13 +130,13 @@ func (h *DbHelper) GetMachines() ([]DbMachine, error) {
 		var version uint
 		var createdAt string
 		var modifiedAt string
-		var snapshotID string
+		var snapshotID sql.NullString
 
 		if err := rows.Scan(&id, &name, &label, &state, &version, &createdAt, &modifiedAt, &snapshotID); err != nil {
-			log.Printf("[DbHelper] Error while retriving label. Error: %s\n", err)
+			log.Printf("[DbHelper] Error while retriving machines. Error: %s\n", err)
 		}
 
-		machines = appendMachine(machines, DbMachine{id, name, label, state, version, createdAt, modifiedAt, snapshotID})
+		machines = appendMachine(machines, DbMachine{id, name, label, state, version, createdAt, modifiedAt, snapshotID.String})
 	}
 
 	return machines, nil
