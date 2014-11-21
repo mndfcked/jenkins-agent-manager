@@ -74,6 +74,18 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	return &VagrantConnector{vIndex, vBoxes, conf}, nil
 }
 
+func (vc *VagrantConnector) SnapshotMachine(id string, workingPath string) (string, error) {
+	vagrantfilePath := filepath.Join(workingPath, id)
+	snapshotID, err := govagrant.SnapTake(vagrantfilePath)
+
+	if err != nil {
+		log.Printf("[VagrantConnector] Error while taking a snapshot of the machine %s in path %s. Error: %s", id, workingPath, err)
+		return "", err
+	}
+
+	return snapshotID, nil
+}
+
 // GetBoxNameFor takes a label as paramter and searches the configuration for a suitable box with the label and returns the name of this box.
 func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 	boxes := vc.Config.Boxes
@@ -221,11 +233,11 @@ func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
 			log.Printf("[VagrantConnector] Checking %s for Vagrantfile\n", filepath.Join(path, dir.Name()))
 			machines, err := govagrant.Status(filepath.Join(path, dir.Name(), "Vagrantfile"))
 
-			if err != nil && err != govagrant.ErrVagrantfileNotFound {
+			if err == govagrant.ErrVagrantfileNotFound {
+				continue
+			} else if err != nil {
 				log.Printf("[VagrantConnector]: Error while getting vagrant status in path %s. Error: %s\n", vc.Config.WorkingDirPath, err.Error())
 				return 0, err
-			} else if err != nil && err == govagrant.ErrVagrantfileNotFound {
-				continue
 			}
 
 			for _, m := range machines {

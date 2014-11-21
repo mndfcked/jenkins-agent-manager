@@ -34,12 +34,12 @@ import (
 
 // A TooManyVmsError tells the caller that the via configuration defined maximum count von machines is exeeded
 type TooManyVmsError struct {
-	RunningVms   int
+	AllowedVms   int
 	RequestedVms int
 }
 
 func (e *TooManyVmsError) Error() string {
-	return fmt.Sprintf("Too many VMs are running. Max. allowed VMs are %d requested: %d", e.RunningVms, e.RequestedVms)
+	return fmt.Sprintf("Too many VMs are running. Max. allowed VMs are %d requested: %d", e.AllowedVms, e.RequestedVms)
 }
 
 // A NoFreeMemoryError tells the caller that there is not enough free system memory available to start the new machine
@@ -92,30 +92,39 @@ func (c *Controller) StartVms(label string) (string, error) {
 		return "", err
 	}
 
-	workingPath, err := c.checkUnusedMachineFor(label, c.Config.WorkingDirPath)
-	var id string
+	id, err := c.checkUnusedMachineFor(label)
+	var vagrantfilePath string
+	var snapshotID string
 	if err == NoFreeMachineError {
 		log.Println("[Controller] No unused Machine found, trying to create a new one.")
-		id, err = c.VagrantConnector.CreateMachineFor(label, workingPath)
+		vagrantfilePath = createUniqueFilePath(label, c.Config.WorkingDirPath)
+		id, err = c.VagrantConnector.CreateMachineFor(label, vagrantfilePath)
 		if err != nil {
-			log.Printf("[Controller] Error while creating a new vagrant machine for %s label in %s. Error: %s\n", label, workingPath, err)
+			log.Printf("[Controller] Error while creating a new vagrant machine for %s label in %s. Error: %s\n", label, vagrantfilePath, err)
 			return "", err
 		}
-		workingPath = filepath.Join(c.Config.WorkingDirPath, id)
-		log.Printf("[Controller] New machine successfully created.\n")
+		log.Printf("[Controller] New machine with id %s successfully in %s created.\n", id, vagrantfilePath)
+
+		log.Printf("[Controller] Snapshotting machine %s.", id)
+		snapshotID, err = c.createSnapshot(id, vagrantfilePath)
+		if err != nil {
+			return "", err
+		}
+		log.Printf("[Controller] Snapshot for machine %s successfully created. Snapshot ID: %s.\n", id, snapshotID)
 
 	} else if err != nil {
 		log.Printf("[Controller] Error while checking for free machine for label %s. Error: %s\n", label, err)
 		return "", err
+	} else {
+
+		log.Printf("[Controller] Starting new machine with the id %s in path %s.\n", id, vagrantfilePath)
+		if err := c.VagrantConnector.StartMachineIn(vagrantfilePath); err != nil {
+			log.Printf("[Controller] Error while spining up the box for label %s. Error: %s\n", label, err)
+			return "", err
+		}
 	}
 
-	log.Printf("[Controller] Trying to start new machine with the id %s in path %s.\n", id, workingPath)
-	if err := c.VagrantConnector.StartMachineIn(workingPath); err != nil {
-		log.Printf("[Controller] Error while spining up the box for label %s. Error: %s\n", label, err)
-		return "", err
-	}
-
-	if err := c.Database.UpdateMachine(id, &DbMachine{id, label, label, "running", 1, "", "", ""}); err != nil {
+	if err := c.Database.UpdateMachine(id, &DbMachine{id, label, label, "running", 1, "", "", snapshotID}); err != nil {
 		log.Printf("[Controller] Error while storing new machine status für id %s. Error: %s", id, err)
 		return "", err
 	}
@@ -123,7 +132,17 @@ func (c *Controller) StartVms(label string) (string, error) {
 	return id, nil
 }
 
-func (c *Controller) checkUnusedMachineFor(label string, baseDir string) (string, error) {
+func (c *Controller) createSnapshot(id string, workingPath string) (string, error) {
+	snapshotID, err := c.VagrantConnector.SnapshotMachine(id, workingPath)
+	if err != nil {
+		log.Printf("[Controller] Snapshot creation for machine %s in path %s failed. Error: %s\n", id, workingPath, err)
+		return "", err
+	}
+
+	return snapshotID, nil
+}
+
+func (c *Controller) checkUnusedMachineFor(label string) (string, error) {
 	machines, err := c.Database.GetMachines()
 	if err != nil {
 		log.Printf("[Controller] Error while retriving running machines status. Error: %s\n", err)
@@ -133,23 +152,16 @@ func (c *Controller) checkUnusedMachineFor(label string, baseDir string) (string
 	for _, m := range machines {
 		if m.Label == label && m.State != "unused" {
 			log.Printf("[Controller]\t=> Found machine %s for the label %s with the state %s!\n", m.ID, label, m.State)
-			return filepath.Join(baseDir, m.ID), nil
+			return m.ID, nil
 		}
 	}
-	/*
-		newID := generateFolderName(label)
-		currTime := time.Now().Format(time.RFC3339)
-		newMachine := DbMachine{newID, label, label, "not created", 1, currTime, currTime, ""}
-		machinesArr := make([]DbMachine, 1)
-		machinesArr[0] = newMachine
-
-		if err := c.Database.InsertNewMachine(machinesArr); err != nil {
-			log.Printf("[Controller] Error while saving machine with id %s in database. Error: %s\n", newID, err)
-			return "", err
-		}
-	*/
 	log.Printf("[Controller]\t=> Couldn't find a suitable machine for label %s.\n", label)
+
 	return "", NoFreeMachineError
+}
+
+func createUniqueFilePath(label string, WorkingDirPath string) string {
+	return filepath.Join(WorkingDirPath, generateFolderName(label))
 }
 
 func generateFolderName(label string) string {
@@ -182,8 +194,8 @@ func (c *Controller) checkMaxVMCount() error {
 	}
 
 	log.Printf("[Controller] %d boxes are running, allowed to run %d boxes", vmCount, maxVMCount)
-	if vmCount+1 > maxVMCount {
-		return &TooManyVmsError{vmCount + 1, maxVMCount}
+	if vmCount >= maxVMCount {
+		return &TooManyVmsError{maxVMCount, vmCount}
 	}
 	return nil
 }
