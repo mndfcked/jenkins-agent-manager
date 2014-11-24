@@ -221,32 +221,36 @@ func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error)
 // GetRunningMachineCount traverses the configured workingpath base dir and calls vagrant status for every vagrant file it finds.
 // Every "running" vagrant machine will be counted and the total amount of "running" machines will be returned.
 func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
-	path := vc.Config.WorkingDirPath
-	count := 0
-	dirs, err := ioutil.ReadDir(path)
+	workingPath := vc.Config.WorkingDirPath
+	machinesMap := map[string]*govagrant.VagrantMachine{}
+	dirs, err := ioutil.ReadDir(workingPath)
 	if err != nil {
-		log.Printf("[VagrantConnector] ERROR while reading running vagrant machines in %s. Error: %s\n", path, err)
+		log.Printf("[VagrantConnector] ERROR while reading running vagrant machines in %s. Error: %s\n", workingPath, err)
+		return -1, err
 	}
 
 	for _, dir := range dirs {
 		if dir.IsDir() {
-			log.Printf("[VagrantConnector] Checking %s for Vagrantfile\n", filepath.Join(path, dir.Name()))
-			machines, err := govagrant.Status(filepath.Join(path, dir.Name(), "Vagrantfile"))
+			path := filepath.Join(workingPath, dir.Name(), "Vagrantfile")
+			log.Printf("[VagrantConnector]\t=> Checking status for %s.\n", path)
+			machines, err := govagrant.Status(path)
 
 			if err == govagrant.ErrVagrantfileNotFound {
+				log.Printf("[VagrantConnector]\t=> No Vagrantfile in %s. Continuing...\n", path)
 				continue
 			} else if err != nil {
 				log.Printf("[VagrantConnector]: Error while getting vagrant status in path %s. Error: %s\n", vc.Config.WorkingDirPath, err.Error())
-				return 0, err
+				return -1, err
 			}
 
 			for _, m := range machines {
 				if m.State == "running" {
-					count++
+					machinesMap[dir.Name()] = &m
+					log.Printf("[VagrantConnector]\t=> Found a machine with state %s for %s. Counting...\n", m.State, path)
 				}
 			}
 		}
 	}
 
-	return count, nil
+	return len(machinesMap), nil
 }
