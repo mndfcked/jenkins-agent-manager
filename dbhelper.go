@@ -158,7 +158,7 @@ func appendMachine(machines []DbMachine, data ...DbMachine) []DbMachine {
 }
 
 // InsertNewMachine takes a slice with DbMachine structs as parameter and stores them in the underlying database.
-func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
+func (h *DbHelper) InsertNewMachine(machine *DbMachine) error {
 	const insertQuery = "INSERT INTO machines (id, name, label, state, version, createdAt, modifiedAt, snapshotID) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
 
 	tx, err := h.Db.Begin()
@@ -170,18 +170,21 @@ func (h *DbHelper) InsertNewMachine(m []DbMachine) error {
 	stmt, err := tx.Prepare(insertQuery)
 	if err != nil {
 		log.Printf("[DbHelper] Error while preparing insert statement %s. Error: %s\n", insertQuery, err)
+		return err
 	}
 	defer stmt.Close()
 
 	currTime := time.Now().Format(time.RFC3339)
-	for _, machine := range m {
-		_, err := stmt.Exec(machine.ID, machine.Name, machine.Label, machine.State, machine.Version, currTime, currTime, machine.SnapshotID)
-		if err != nil {
-			log.Printf("[DbHelper] Error while executing insertion. Error: %s\n", err)
-		}
+	_, err = stmt.Exec(machine.ID, machine.Name, machine.Label, machine.State, machine.Version, currTime, currTime, machine.SnapshotID)
+	if err != nil {
+		log.Printf("[DbHelper] Error while executing insertion. Error: %s\n", err)
+		return err
 	}
 
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		log.Printf("[DbHelper] Error while commiting machine insert transaction. Error: %s\n", err)
+		return err
+	}
 
 	return nil
 }
