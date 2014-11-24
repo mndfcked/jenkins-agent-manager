@@ -124,7 +124,9 @@ func (c *Controller) StartVms(label string) (string, error) {
 		}
 	}
 
-	if err := c.Database.UpdateMachine(id, &DbMachine{id, label, label, "running", 1, "", "", snapshotID}); err != nil {
+	m := DbMachine{id, fmt.Sprintf("%s_%s", id, label), label, "running", 1, "1", "1", snapshotID}
+	log.Printf("[Controller]\t=> Creation of the new machine successfull. Inserting the following machine into the database:\n%#v\n", m)
+	if err := c.Database.InsertNewMachine(&m); err != nil {
 		log.Printf("[Controller] Error while storing new machine status für id %s. Error: %s", id, err)
 		return "", err
 	}
@@ -150,7 +152,7 @@ func (c *Controller) checkUnusedMachineFor(label string) (string, error) {
 	}
 
 	for _, m := range machines {
-		if m.Label == label && m.State != "unused" {
+		if m.Label == label && m.State == "unused" {
 			log.Printf("[Controller]\t=> Found machine %s for the label %s with the state %s!\n", m.ID, label, m.State)
 			return m.ID, nil
 		}
