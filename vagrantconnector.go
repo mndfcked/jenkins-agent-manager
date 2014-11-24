@@ -21,6 +21,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/docker/pkg/units"
 	"github.com/mndfcked/govagrant"
@@ -103,7 +104,8 @@ func (vc *VagrantConnector) GetBoxNameFor(label string) (string, error) {
 
 // CreateMachineFor takes a label and workingPath as parameter, creates a new vagrantfile in it and starts the machine up. Afert a successfuly start, the ID of the new machine is returned.
 func (vc *VagrantConnector) CreateMachineFor(label string, workingPath string) (string, error) {
-	log.Printf("[VagrantConnector] Got request for creating a new vagrant machine for the label %s in the path %s.\n", label, workingPath)
+	path := normalizePath(workingPath)
+	log.Printf("[VagrantConnector] Got request for creating a new vagrant machine for the label %s in the path %s.\n", label, path)
 	boxName, err := vc.GetBoxNameFor(label)
 
 	if err != nil {
@@ -111,55 +113,52 @@ func (vc *VagrantConnector) CreateMachineFor(label string, workingPath string) (
 		return "", err
 	}
 
-	vagrantfilePath := filepath.Join(workingPath, "Vagrantfile")
-	vagrantfileDirPath := filepath.Dir(vagrantfilePath)
-
-	if !govagrant.VagrantfileExists(vagrantfilePath) {
-		log.Printf("[VagrantConnector]: Vagrantfile not found, creating new in path %s\n", vagrantfilePath)
-		if err := os.MkdirAll(vagrantfileDirPath, 0755); err != nil {
-			log.Printf("[VagrantConnector]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s\n", label, workingPath, err.Error())
+	if !govagrant.VagrantfileExists(path) {
+		log.Printf("[VagrantConnector]: Vagrantfile not found, creating new in path %s\n", path)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			log.Printf("[VagrantConnector]: ERROR: Can't create the working directory for label %s on path %s. Error message: %s\n", label, path, err.Error())
 			return "", err
 		}
 
-		govagrant.Init(vagrantfilePath, boxName)
+		govagrant.Init(path, boxName)
 	}
 	log.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
 
-	if err := govagrant.Up(vagrantfilePath); err != nil {
-		log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", vagrantfilePath, err)
+	if err := govagrant.Up(path); err != nil {
+		log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", path, err)
 		return "", err
 	}
 
-	return filepath.Base(workingPath), nil
+	return filepath.Base(path), nil
 }
 
 // StartMachineIn takes a workingPath as parameter and tries to start the containing vagrant machine.
 func (vc *VagrantConnector) StartMachineIn(workingPath string) error {
-	vagrantfilePath := filepath.Join(workingPath, "Vagrantfile")
-	log.Printf("[VagrantConnector] Trying to start a vagrant machine in the path %s\n", vagrantfilePath)
+	path := normalizePath(workingPath)
+	log.Printf("[VagrantConnector] Trying to start a vagrant machine in the path %s\n", path)
 
-	if !govagrant.VagrantfileExists(vagrantfilePath) {
-		log.Printf("[VagrantConnector]: Vagrantfile not found, creating new in path %s\n", vagrantfilePath)
+	if !govagrant.VagrantfileExists(path) {
+		log.Printf("[VagrantConnector]: Vagrantfile in path %s not found!\n", path)
 		return govagrant.ErrVagrantfileNotFound
 	}
 
-	status, err := govagrant.Status(vagrantfilePath)
+	status, err := govagrant.Status(path)
 	if err != nil {
-		log.Printf("[VagrantConnector] Error while retirivng status for vagrant machine in %s. Error: %s\n", vagrantfilePath, err)
+		log.Printf("[VagrantConnector] Error while retrivng status for vagrant machine in %s. Error: %s\n", path, err)
 		return err
 	}
 
 	for _, m := range status {
-		if m.State == "Saved" {
-			if err := govagrant.Up(vagrantfilePath); err != nil {
-				log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", vagrantfilePath, err)
+		if m.State != govagrant.STATE_RUNNING {
+			if err := govagrant.Up(path); err != nil {
+				log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", path, err)
 				return err
 			}
 			return nil
 		}
 	}
 
-	return fmt.Errorf("Couldn't start machine in path %s.", vagrantfilePath)
+	return fmt.Errorf("Couldn't start machine in path %s.", path)
 }
 
 // GetBoxMemoryFor takes a label as parameter, searches the configuration for a suitable box and returns the system memory configured for this box.
@@ -185,6 +184,27 @@ func (vc *VagrantConnector) ResetMachineIn(workingDir string, snapshotID string)
 			workingDir,
 			snapshotID,
 			err)
+		return err
+	}
+
+	return nil
+}
+
+func normalizePath(path string) string {
+	normalizedPath := filepath.Clean(path)
+	if strings.Contains(normalizedPath, "Vagrantfile") {
+		normalizedPath = filepath.Dir(normalizedPath)
+	}
+
+	return normalizedPath
+}
+
+func (vc *VagrantConnector) HaltMachineIn(workingDir string) error {
+	normalizedPath := normalizePath(workingDir)
+	log.Printf("[VagrantConnector] Received request to halt the machine in path %s.\n", normalizedPath)
+
+	if err := govagrant.Halt(normalizedPath); err != nil {
+		log.Printf("[VagrantConnector] Error while halting machine in %s. Error: %s\n", normalizePath, err)
 		return err
 	}
 
