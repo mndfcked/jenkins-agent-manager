@@ -16,7 +16,6 @@
 package main
 
 //TODO: Implement new design
-//	- check before every start of a new machine, wheter it there is a free, already created machine available
 //	- don't destroy a machine, snapshot and restore instead (=> vagrantconnector, only when already created)
 
 import (
@@ -112,23 +111,31 @@ func (c *Controller) StartVms(label string) (string, error) {
 		}
 		log.Printf("[Controller] Snapshot for machine %s successfully created. Snapshot ID: %s.\n", id, snapshotID)
 
+		m := DbMachine{id, fmt.Sprintf("%s_%s", id, label), label, "running", 1, "1", "1", snapshotID}
+		log.Printf("[Controller]\t=> Creation of the new machine successfull. Inserting the following machine into the database:\n%#v\n", m)
+		if err := c.Database.InsertNewMachine(&m); err != nil {
+			log.Printf("[Controller] Error while storing new machine status für id %s. Error: %s", id, err)
+			return "", err
+		}
+
 	} else if err != nil {
 		log.Printf("[Controller] Error while checking for free machine for label %s. Error: %s\n", label, err)
 		return "", err
 	} else {
-
-		log.Printf("[Controller] Starting new machine with the id %s in path %s.\n", id, vagrantfilePath)
+		vagrantfilePath = filepath.Join(c.Config.WorkingDirPath, id)
+		log.Printf("[Controller] Starting unused machine with the id %s in path %s.\n", id, vagrantfilePath)
 		if err := c.VagrantConnector.StartMachineIn(vagrantfilePath); err != nil {
 			log.Printf("[Controller] Error while spining up the box for label %s. Error: %s\n", label, err)
 			return "", err
 		}
-	}
 
-	m := DbMachine{id, fmt.Sprintf("%s_%s", id, label), label, "running", 1, "1", "1", snapshotID}
-	log.Printf("[Controller]\t=> Creation of the new machine successfull. Inserting the following machine into the database:\n%#v\n", m)
-	if err := c.Database.InsertNewMachine(&m); err != nil {
-		log.Printf("[Controller] Error while storing new machine status für id %s. Error: %s", id, err)
-		return "", err
+		m := DbMachine{id, fmt.Sprintf("%s_%s", id, label), label, "running", 1, "1", "1", snapshotID}
+		log.Printf("[Controller]\t=> Creation of the new machine successfull. Inserting the following machine into the database:\n%#v\n", m)
+		if err := c.Database.UpdateMachine(id, &m); err != nil {
+			log.Printf("[Controller] Error while storing new machine status für id %s. Error: %s", id, err)
+			return "", err
+		}
+
 	}
 
 	return id, nil
@@ -224,12 +231,17 @@ func (c *Controller) DestroyVms(id string) error {
 
 	workingPath := filepath.Join(c.Config.WorkingDirPath, id)
 
-	state, err := c.VagrantConnector.DestroyMachineFor(workingPath)
-	if err != nil {
+	if err := c.VagrantConnector.HaltMachineIn(workingPath); err != nil {
 		log.Printf("[Controller] Error while destroying the machine in path %s. Error: %s\n", workingPath, err)
 		return err
 	}
-	m.State = state
+
+	if err := c.VagrantConnector.ResetMachineIn(workingPath, m.SnapshotID); err != nil {
+		log.Print("[Controller] Error while reseting the machine in path %s to snapshot id %s. Error: %s\n", workingPath, m.SnapshotID, err)
+		return err
+	}
+
+	m.State = "unused"
 	if err := c.Database.UpdateMachine(id, m); err != nil {
 		log.Printf("[Controller] Error while updating state of machine with id %s in database. Error: %s\n", id, err)
 		return err
