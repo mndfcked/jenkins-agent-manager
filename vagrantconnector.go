@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/pkg/units"
 	"github.com/mndfcked/govagrant"
@@ -124,7 +125,7 @@ func (vc *VagrantConnector) CreateMachineFor(label string, workingPath string) (
 	}
 	log.Printf("[VagrantConnector]: Waiting for spin up to complete, this may take a while\n")
 
-	if err := govagrant.Up(path); err != nil {
+	if err := vc.StartMachineIn(path); err != nil {
 		log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", path, err)
 		return "", err
 	}
@@ -150,15 +151,61 @@ func (vc *VagrantConnector) StartMachineIn(workingPath string) error {
 
 	for _, m := range status {
 		if m.State != govagrant.STATE_RUNNING {
-			if err := govagrant.Up(path); err != nil {
-				log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", path, err)
-				return err
+			errChan := make(chan error)
+			successChan := make(chan bool)
+			done := make(chan struct{})
+			defer close(done)
+			go func(path string, successChan chan bool, errChan chan error) {
+				if err := govagrant.Up(path); err != nil {
+					log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", path, err)
+					errChan <- err
+				}
+				successChan <- true
+			}(path, successChan, errChan)
+
+			go func(path string, successChan chan bool, errChan chan error, done chan struct{}) {
+				var retryTimout = 10 * time.Second
+
+				for {
+					select {
+					case <-done:
+						log.Printf("[=>\t[VagrantConnector] Received done signal. Returning the routine.\n")
+						return
+					default:
+
+						log.Printf("=>\t[VagrantConnector] Checking for startup progress status.\n")
+						status, err := govagrant.Status(path)
+
+						if err != nil {
+							log.Printf("[VagrantConnector] Error while requesting vagrant status in %s. Error: %s", path, err)
+							errChan <- err
+						}
+
+						if status[0].State == govagrant.STATE_RUNNING {
+							log.Printf("=>\t[VagrantConnector] Successful machine start detected!\n")
+							successChan <- true
+						}
+
+						time.Sleep(retryTimout)
+						log.Printf("=>\t[VagrantConnector] Machine not yet ready. Waiting for another %d seconds.\n", retryTimout/time.Second)
+					}
+				}
+
+			}(path, successChan, errChan, done)
+
+			for {
+				select {
+				case _ = <-successChan:
+					return nil
+				case err := <-errChan:
+					return err
+
+				}
+
 			}
-			return nil
 		}
 	}
-
-	return fmt.Errorf("Couldn't start machine in path %s.", path)
+	return fmt.Errorf("Starting of machine in path %s failed. Timed out while waiting for it to get into running state.", path)
 }
 
 // GetBoxMemoryFor takes a label as parameter, searches the configuration for a suitable box and returns the system memory configured for this box.
