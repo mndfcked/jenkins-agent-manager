@@ -15,9 +15,6 @@
 //
 package main
 
-//TODO: Implement new design
-//	- don't destroy a machine, snapshot and restore instead (=> vagrantconnector, only when already created)
-
 import (
 	"bytes"
 	"crypto/sha1"
@@ -54,11 +51,6 @@ func (e *NoFreeMemoryError) Error() string {
 // A NoFreeMachineError tells the caller that non of the already created machine is free for a new job.
 var NoFreeMachineError = errors.New("no machines found.")
 
-/*
-func (e *NoFreeMachineError) Error() string {
-	return fmt.Sprintf("no unused vagrant machine for label %s found", e.Label)
-}
-*/
 // Controller struct gives other type to hold reference to it
 type Controller struct {
 	VagrantConnector *VagrantConnector
