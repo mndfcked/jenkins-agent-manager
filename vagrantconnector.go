@@ -76,6 +76,7 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 	return &VagrantConnector{vIndex, vBoxes, conf}, nil
 }
 
+// SnapshotMachine creates a snapshot of the current state of the machine with the passed id in the passed working path
 func (vc *VagrantConnector) SnapshotMachine(id string, workingPath string) (string, error) {
 	vagrantfilePath := filepath.Join(workingPath, id)
 	snapshotID, err := govagrant.SnapTake(vagrantfilePath)
@@ -151,10 +152,12 @@ func (vc *VagrantConnector) StartMachineIn(workingPath string) error {
 
 	for _, m := range status {
 		if m.State != govagrant.STATE_RUNNING {
+
 			errChan := make(chan error)
 			successChan := make(chan bool)
 			done := make(chan struct{})
 			defer close(done)
+
 			go func(path string, successChan chan bool, errChan chan error) {
 				if err := govagrant.Up(path); err != nil {
 					log.Printf("[VagrantConnector] Error while starting vagrant machine in path %s. Error: %s\n", path, err)
@@ -246,6 +249,7 @@ func normalizePath(path string) string {
 	return normalizedPath
 }
 
+// HaltMachineIn tries to shut down the machine in the passed working path
 func (vc *VagrantConnector) HaltMachineIn(workingDir string) error {
 	normalizedPath := normalizePath(workingDir)
 	log.Printf("[VagrantConnector] Received request to halt the machine in path %s.\n", normalizedPath)
@@ -260,8 +264,6 @@ func (vc *VagrantConnector) HaltMachineIn(workingDir string) error {
 
 // DestroyMachineFor takes a working directory path as parameter, tries to destroy the box and returns the state the machine has after the destory command.
 func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error) {
-	//TODO: Don't destroy. Instead=> Snapshot restoring
-	//TODO: Return the correct, non hardcoded, state
 	log.Printf("[VagrantConnector] Received request to destroy the machine in path %s.\n", workingDir)
 
 	vagrantfilePath := filepath.Join(workingDir, "Vagrantfile")
@@ -272,7 +274,7 @@ func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error)
 	}
 
 	for _, m := range machines {
-		if m.State == "running" {
+		if m.State == govagrant.STATE_RUNNING {
 			log.Printf("[VagrantConnector] Found machine %s with running state. Trying to destroy it\n", m.Name)
 
 			if err := govagrant.Destroy(vagrantfilePath); err != nil {
@@ -281,7 +283,7 @@ func (vc *VagrantConnector) DestroyMachineFor(workingDir string) (string, error)
 			}
 		}
 	}
-	state := "destroyed"
+	state := govagrant.STATE_NOTCREATED
 	return state, nil
 }
 
@@ -311,7 +313,7 @@ func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
 			}
 
 			for _, m := range machines {
-				if m.State == "running" {
+				if m.State == govagrant.STATE_RUNNING {
 					machinesMap[dir.Name()] = &m
 					log.Printf("[VagrantConnector]\t=> Found a machine with state %s for %s. Counting...\n", m.State, path)
 				}

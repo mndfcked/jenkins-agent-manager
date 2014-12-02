@@ -48,8 +48,8 @@ func (e *NoFreeMemoryError) Error() string {
 	return fmt.Sprintf("Not enought free systen memory. The System has %d Bytes of free system memory, requested where %d Bytes", e.RequestedMemory, e.FreeMemory)
 }
 
-// A NoFreeMachineError tells the caller that non of the already created machine is free for a new job.
-var NoFreeMachineError = errors.New("no machines found.")
+// ErrNoFreeMachine tells the caller that non of the already created machine is free for a new job.
+var ErrNoFreeMachine = errors.New("no machines found")
 
 // Controller struct gives other type to hold reference to it
 type Controller struct {
@@ -86,7 +86,7 @@ func (c *Controller) StartVms(label string) (string, error) {
 	id, err := c.checkUnusedMachineFor(label)
 	var vagrantfilePath string
 	var snapshotID string
-	if err == NoFreeMachineError {
+	if err == ErrNoFreeMachine {
 		log.Println("[Controller] No unused Machine found, trying to create a new one.")
 		vagrantfilePath = createUniqueFilePath(label, c.Config.WorkingDirPath)
 		id, err = c.VagrantConnector.CreateMachineFor(label, vagrantfilePath)
@@ -158,7 +158,7 @@ func (c *Controller) checkUnusedMachineFor(label string) (string, error) {
 	}
 	log.Printf("[Controller]\t=> Couldn't find a suitable machine for label %s.\n", label)
 
-	return "", NoFreeMachineError
+	return "", ErrNoFreeMachine
 }
 
 func createUniqueFilePath(label string, WorkingDirPath string) string {
