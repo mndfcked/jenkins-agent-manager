@@ -55,14 +55,6 @@ func init() {
  * Main Program starting point
  */
 func main() {
-	/*
-	 *
-	 * TODO: Cache all machines from vagrant global-status
-	 * TODO: Create routine that searches for the desired box type, if not existing -> create
-	 * TODO: vagrant up on free boxes, cache internal which boxes are already used
-	 * TODO: reset boxes to a snapshot after it was used
-	 *
-	 */
 	flag.Parse()
 
 	fmt.Println("==== Creating new configuration =====")
@@ -126,3 +118,10 @@ func createListener(conf *Configuration, c *Controller) error {
 
 	return nil
 }
+
+/*
+
+  TODO: StartUp check routine:
+ 	 - make sure the minimal required vagrant version is installed
+ 	 - iterate through working directory and remove invalid db entries
+*/

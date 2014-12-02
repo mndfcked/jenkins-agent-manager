@@ -323,3 +323,10 @@ func (vc *VagrantConnector) GetRunningMachineCount() (int, error) {
 
 	return len(machinesMap), nil
 }
+
+/*
+ *
+ * TODO: Cache all machines from vagrant global-status
+ * TODO: Create routine that searches for the desired box type, if not existing -> create
+ *
+ */
