@@ -28,8 +28,10 @@ import (
  * Definition of configuration constants
  */
 const (
-	defaultConfPath = "/etc/jenkins-agent-manager/config.json"
-	usageConfPath   = "Path to the configuration file. Has to be valid JSON format"
+	defaultConfPath  = "./config.json"
+	usageConfPath    = "Path to the configuration file. Has to be valid JSON format"
+	defaultDbPath    = "./agents.db"
+	defaultDbVersion = 2
 )
 
 /*
@@ -46,20 +48,13 @@ func init() {
 	 * TODO: Verify that jenkins is installed and running
 	 */
 	flag.StringVar(&confPath, "configurationPath", defaultConfPath, usageConfPath)
+
 }
 
 /*
  * Main Program starting point
  */
 func main() {
-	/*
-	 *
-	 * TODO: Cache all machines from vagrant global-status
-	 * TODO: Create routine that searches for the desired box type, if not existing -> create
-	 * TODO: vagrant up on free boxes, cache internal which boxes are already used
-	 * TODO: reset boxes to a snapshot after it was used
-	 *
-	 */
 	flag.Parse()
 
 	fmt.Println("==== Creating new configuration =====")
@@ -94,22 +89,39 @@ func main() {
 	fmt.Println("=======================================================\n")
 
 	fmt.Println("==== Creating controller instance ====")
-	contr, err := NewController(vc, jc, conf)
+	dbhelper, err := NewDbHelper(defaultDbPath, defaultDbVersion)
+	if err != nil {
+		log.Panicf("[Main] Error while creating new DbHelper instance. Error: %s\n", err)
+	}
+
+	contr, err := NewController(vc, jc, conf, dbhelper)
 	if err != nil {
 		log.Panicf("[MAIN]: ERROR: Couldn't create Controller instance.\nError: %s\n", err.Error())
 	}
 	log.Println("Successfully create controller instance.")
 	fmt.Println("======================================\n")
 
+	fmt.Println("==== Creating listener instance ====")
 	if createListener(conf, contr); err != nil {
 		log.Panicf("[MAIN]: ERROR: Couldn't create HTTP listener.\nError: %s\n", err.Error())
 	}
+	log.Println("Successfully created HTTP listener")
 }
 
 func createListener(conf *Configuration, c *Controller) error {
-	l, err := NewListener(conf.ListenerPort, c)
-	if err != nil {
+	l := NewListener(conf.ListenerPort, c)
+
+	if err := l.CreateSocket(); err != nil {
+		log.Printf("[Main] Error while creating listener. Error: %s\n", err)
 		return err
 	}
-	return l.CreateSocket(conf.ListenerPort)
+
+	return nil
 }
+
+/*
+
+  TODO: StartUp check routine:
+ 	 - make sure the minimal required vagrant version is installed
+ 	 - iterate through working directory and remove invalid db entries
+*/

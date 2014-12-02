@@ -21,3 +21,10 @@ _testmain.go
 
 *.exe
 *.test
+config.json
+
+# vim specific
+tags
+
+# sqlite files
+*.db

@@ -10,7 +10,7 @@ A simple service which manages Vagrant boxes based on the load of the Jenkins ma
 * `cd` into the cloned folder, run `go install` and `jenkins-agent-manager` or `go run *.go` 
 
 # Configuration
-jam expects a JSON formatted configuration file. The default path is set to `/etc/jenkins-agent-manager/config.json`, but you can use the flag `-confPath="/path/to/your/config/file.json"` to pass a custom path to jam.
+The jenkins agent manager expects a JSON formatted configuration file. The default path is set to `config.json` in the same directory as the executable. You can use the flag `-confPath="/path/to/your/config/file.json"` to set a custom path.
 The sample configuration below lists all currently available options.
 ```JSON
 {
@@ -51,7 +51,7 @@ The sample configuration below lists all currently available options.
   * `memory`: The amount of system memory the box will be using.
 
 # Note
-This is part of my bachelor thesis and still work in progress.
+This is a project for learning go. Please don't expects something special.
 
 # Contributions
-Currently not desirable.
+Contributions in any form are always welcome.
