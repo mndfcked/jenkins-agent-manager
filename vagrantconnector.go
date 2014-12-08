@@ -26,6 +26,7 @@ import (
 
 	"github.com/docker/docker/pkg/units"
 	"github.com/mndfcked/govagrant"
+	"github.com/mndfcked/govagrant/plattforms/virtualbox_driver"
 )
 
 // BoxNotFoundError tells the caller that no vagrant box for the given label was configured in the configuration file
@@ -79,7 +80,10 @@ func NewVagrantConnector(conf *Configuration) (*VagrantConnector, error) {
 // SnapshotMachine creates a snapshot of the current state of the machine with the passed id in the passed working path
 func (vc *VagrantConnector) SnapshotMachine(id string, workingPath string) (string, error) {
 	vagrantfilePath := filepath.Join(workingPath, id)
-	snapshotID, err := govagrant.SnapTake(vagrantfilePath)
+	vd := virtualbox.NewVirtualboxDriver("/")
+	s := govagrant.NewSnapshot(vd)
+
+	snapshotID, err := s.Take(vagrantfilePath)
 
 	if err != nil {
 		log.Printf("[VagrantConnector] Error while taking a snapshot of the machine %s in path %s. Error: %s", id, workingPath, err)
@@ -229,7 +233,10 @@ func (vc *VagrantConnector) ResetMachineIn(workingDir string, snapshotID string)
 	log.Printf("[VagrantConnector] Received request to reset the machine in path %s.\n", workingDir)
 
 	vagrantfilePath := filepath.Join(workingDir, "Vagrantfile")
-	if err := govagrant.SnapBack(vagrantfilePath, snapshotID); err != nil {
+	vd := virtualbox.NewVirtualboxDriver("/")
+	s := govagrant.NewSnapshot(vd)
+
+	if err := s.Back(vagrantfilePath, snapshotID); err != nil {
 		log.Printf("[VagrantConnector] Error while resetting the machine in path %s to snapshot %s. Error: %s\n",
 			workingDir,
 			snapshotID,
